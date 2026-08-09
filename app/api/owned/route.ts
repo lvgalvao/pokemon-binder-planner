@@ -1,4 +1,5 @@
 import { setOwned } from "@/lib/db";
+import { requireUserId } from "@/lib/session";
 import { getManifest } from "@/lib/manifests";
 import { parseItemKey, temReverseHolo } from "@/lib/types";
 
@@ -36,6 +37,9 @@ export async function POST(request: Request) {
     return Response.json({ error: "Nenhuma carta válida" }, { status: 400 });
   }
 
-  setOwned(setId, accepted, owned);
+  // So aqui a conta nasce, e so depois da validacao: um pedido com carta
+  // inexistente e recusado sem ter criado usuario nenhum.
+  const userId = await requireUserId();
+  await setOwned(userId, setId, accepted, owned);
   return Response.json({ ok: true, count: accepted.length });
 }

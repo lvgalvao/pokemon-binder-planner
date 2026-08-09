@@ -1,4 +1,5 @@
 import { getBinder, getOwnedIds, getHiddenIds } from "@/lib/db";
+import { getUserId } from "@/lib/session";
 import { getManifest } from "@/lib/manifests";
 import { sortCards } from "@/lib/cards";
 import { missingCards } from "@/lib/binder";
@@ -18,11 +19,19 @@ export async function GET(
   const manifest = getManifest(setId);
   if (!manifest) return new Response("Coleção não encontrada", { status: 404 });
 
+  // getUserId e nao requireUserId: baixar o PDF nao e motivo para criar conta.
+  // Sem sessao, nada esta marcado e a folha sai com a colecao inteira — que e
+  // exatamente o que alguem sem nenhuma carta precisa imprimir.
+  const userId = await getUserId();
+
   // Mesma ordem escolhida no fichario, para a folha impressa sair na sequencia
   // em que a crianca vai encaixar as cartas.
-  const binder = getBinder(setId);
   // Cartas escondidas sao as que ele nao quer ter: nao entram na folha de impressao.
-  const escondidas = getHiddenIds(setId);
+  const [binder, escondidas, possuidas] = await Promise.all([
+    getBinder(userId, setId),
+    getHiddenIds(userId, setId),
+    getOwnedIds(userId, setId),
+  ]);
   // Cada posicao faltante vira uma carta na folha: faltando a simples E a
   // brilhante, a mesma arte sai duas vezes — sao dois bolsos a preencher.
   const chave = (i: { card: { id: string }; variant: "normal" | "holo" }) =>
@@ -31,7 +40,7 @@ export async function GET(
     sortCards(manifest.cards, binder.sortRule),
     setId,
   ).filter((i) => !escondidas.has(chave(i)));
-  const missing = missingCards(posicoes, getOwnedIds(setId), chave);
+  const missing = missingCards(posicoes, possuidas, chave);
 
   const bytes = await buildMissingPdf(missing);
   if (!bytes) {

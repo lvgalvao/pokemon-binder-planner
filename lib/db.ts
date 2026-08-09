@@ -1,166 +1,189 @@
-import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
-import path from "node:path";
+import { createClient } from "./supabase/server";
 import { LAYOUTS, layoutKey, type Layout, type SortRule } from "./types";
 
 /**
- * SQLite embutido no Node 22 (`node:sqlite`) — sem dependencia, sem codegen,
- * sem compilacao nativa. Sao duas tabelas e meia duzia de consultas; um ORM
- * seria mais peca movel que problema resolvido.
+ * Estado do usuario, em Postgres com RLS (migracoes em supabase/migrations/).
+ *
+ * Tres tabelas e meia duzia de consultas — a mesma forma que o SQLite tinha,
+ * agora com dono. Sem ORM pelo mesmo motivo de antes: seria mais peca movel que
+ * problema resolvido.
+ *
+ * Todo mundo aqui recebe `userId` explicito em vez de ir buscar a sessao por
+ * dentro. E o que deixa "sem sessao = fichario vazio" visivel em cada chamada,
+ * em vez de escondido numa camada — e este app abre sem sessao de proposito.
  */
-
-const DB_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DB_DIR, "binder.db");
-
-let db: DatabaseSync | null = null;
-
-function connect(): DatabaseSync {
-  if (db) return db;
-  mkdirSync(DB_DIR, { recursive: true });
-  const conn = new DatabaseSync(DB_PATH);
-  conn.exec(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
-
-    -- Um fichario por colecao, criado implicitamente ao abrir o set.
-    -- A crianca nunca ve um "criar fichario".
-    CREATE TABLE IF NOT EXISTS binder (
-      set_id     TEXT PRIMARY KEY,
-      rows       INTEGER NOT NULL DEFAULT 3,
-      columns    INTEGER NOT NULL DEFAULT 3,
-      sort_rule  TEXT    NOT NULL DEFAULT 'number',
-      created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-    );
-
-    -- Presenca da linha = possui aquela POSICAO. card_id guarda a chave de item:
-    -- "sv7-2" para a versao normal e "sv7-2#holo" para a brilhante. Embutir a
-    -- variante na chave e o que fez os dados antigos continuarem validos sem
-    -- migracao: tudo que existia ja era, por definicao, a versao normal.
-    CREATE TABLE IF NOT EXISTS owned_card (
-      set_id  TEXT NOT NULL,
-      card_id TEXT NOT NULL,
-      PRIMARY KEY (set_id, card_id),
-      FOREIGN KEY (set_id) REFERENCES binder(set_id) ON DELETE CASCADE
-    );
-
-    -- Cartas que a crianca nao tem e NAO QUER ter. Somem do fichario, nao contam
-    -- como faltantes e nao entram no PDF. E diferente de "nao tenho": e "nao quero".
-    CREATE TABLE IF NOT EXISTS hidden_card (
-      set_id  TEXT NOT NULL,
-      card_id TEXT NOT NULL,
-      PRIMARY KEY (set_id, card_id),
-      FOREIGN KEY (set_id) REFERENCES binder(set_id) ON DELETE CASCADE
-    );
-  `);
-  db = conn;
-  return conn;
-}
 
 export type BinderState = { setId: string } & Layout & { sortRule: SortRule };
 
-/** Le o fichario, criando-o na primeira visita com os padroes. */
-export function getBinder(setId: string): BinderState {
-  const conn = connect();
-  conn
-    .prepare("INSERT OR IGNORE INTO binder (set_id) VALUES (?)")
-    .run(setId);
-  const row = conn
-    .prepare("SELECT set_id, rows, columns, sort_rule FROM binder WHERE set_id = ?")
-    .get(setId) as { set_id: string; rows: number; columns: number; sort_rule: string };
+const PADRAO = { ...LAYOUTS["3x3"], sortRule: "number" as const };
 
-  // Registros gravados antes da correcao de orientacao podem trazer uma combinacao
-  // que nao existe mais (ex.: 3 colunas x 4 linhas). Cai no formato padrao em vez
-  // de renderizar um fichario que nenhum botao consegue selecionar.
-  const conhecido = LAYOUTS[layoutKey(row.columns, row.rows)] ?? LAYOUTS["3x3"];
+/**
+ * O fichario da colecao, ou os padroes.
+ *
+ * Nao cria linha na leitura, ao contrario da versao SQLite: abrir uma colecao
+ * viraria uma escrita a cada visita, por rede, para gravar exatamente os valores
+ * padrao. A linha nasce quando a crianca de fato muda o formato.
+ */
+export async function getBinder(
+  userId: string | null,
+  setId: string,
+): Promise<BinderState> {
+  if (!userId) return { setId, ...PADRAO };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("binder")
+    .select("rows, columns, sort_rule")
+    .eq("user_id", userId)
+    .eq("set_id", setId)
+    .maybeSingle();
+
+  if (error) throw new Error(`getBinder(${setId}): ${error.message}`);
+  if (!data) return { setId, ...PADRAO };
+
+  // Registros gravados antes da correcao de orientacao podem trazer uma
+  // combinacao que nao existe mais (ex.: 3 colunas x 4 linhas). Cai no formato
+  // padrao em vez de renderizar um fichario que nenhum botao consegue selecionar.
+  const conhecido = LAYOUTS[layoutKey(data.columns, data.rows)] ?? LAYOUTS["3x3"];
 
   return {
-    setId: row.set_id,
+    setId,
     rows: conhecido.rows,
     columns: conhecido.columns,
-    sortRule: row.sort_rule === "rarity" ? "rarity" : "number",
+    sortRule: data.sort_rule === "rarity" ? "rarity" : "number",
   };
 }
 
-export function updateBinder(
+export async function updateBinder(
+  userId: string,
   setId: string,
   patch: Partial<Layout & { sortRule: SortRule }>,
-): void {
-  const conn = connect();
-  getBinder(setId);
-  if (patch.rows !== undefined && patch.columns !== undefined) {
-    conn
-      .prepare("UPDATE binder SET rows = ?, columns = ? WHERE set_id = ?")
-      .run(patch.rows, patch.columns, setId);
-  }
-  if (patch.sortRule !== undefined) {
-    conn.prepare("UPDATE binder SET sort_rule = ? WHERE set_id = ?").run(patch.sortRule, setId);
-  }
-}
+): Promise<void> {
+  const atual = await getBinder(userId, setId);
+  const supabase = await createClient();
 
-export function getOwnedIds(setId: string): Set<string> {
-  const conn = connect();
-  getBinder(setId);
-  const rows = conn
-    .prepare("SELECT card_id FROM owned_card WHERE set_id = ?")
-    .all(setId) as { card_id: string }[];
-  return new Set(rows.map((r) => r.card_id));
-}
+  // Upsert em vez de update: a linha pode nao existir, porque a leitura nao a
+  // cria. Mandar o estado inteiro deixa o insert e o update com o mesmo corpo.
+  const { error } = await supabase.from("binder").upsert(
+    {
+      user_id: userId,
+      set_id: setId,
+      rows: patch.rows ?? atual.rows,
+      columns: patch.columns ?? atual.columns,
+      sort_rule: patch.sortRule ?? atual.sortRule,
+    },
+    { onConflict: "user_id,set_id" },
+  );
 
-/** Marca ou desmarca varias cartas de uma vez — usado pelo "tenho todas desta pagina". */
-export function setOwned(setId: string, cardIds: readonly string[], owned: boolean): void {
-  const conn = connect();
-  getBinder(setId);
-  const stmt = owned
-    ? conn.prepare("INSERT OR IGNORE INTO owned_card (set_id, card_id) VALUES (?, ?)")
-    : conn.prepare("DELETE FROM owned_card WHERE set_id = ? AND card_id = ?");
-  conn.exec("BEGIN");
-  try {
-    for (const id of cardIds) stmt.run(setId, id);
-    conn.exec("COMMIT");
-  } catch (err) {
-    conn.exec("ROLLBACK");
-    throw err;
-  }
-}
-
-export function getHiddenIds(setId: string): Set<string> {
-  const conn = connect();
-  getBinder(setId);
-  const rows = conn
-    .prepare("SELECT card_id FROM hidden_card WHERE set_id = ?")
-    .all(setId) as { card_id: string }[];
-  return new Set(rows.map((r) => r.card_id));
+  if (error) throw new Error(`updateBinder(${setId}): ${error.message}`);
 }
 
 /**
- * Esconde ou revela cartas. Esconder tambem apaga a posse: "nao tenho e nao quero"
- * — assim, se a carta voltar a aparecer um dia, nao volta marcada por engano.
+ * Um set expandido chega a ~500 posicoes (sv7 vai de 175 cartas a 300 bolsos).
+ * O teto padrao de resposta do PostgREST e 1.000 linhas, e passar dele
+ * silenciosamente faria cartas marcadas sumirem da tela. O limite explicito
+ * deixa o teto visivel aqui em vez de virar bug de dado faltando.
  */
-export function setHidden(setId: string, cardIds: readonly string[], hidden: boolean): void {
-  const conn = connect();
-  getBinder(setId);
-  const stmt = hidden
-    ? conn.prepare("INSERT OR IGNORE INTO hidden_card (set_id, card_id) VALUES (?, ?)")
-    : conn.prepare("DELETE FROM hidden_card WHERE set_id = ? AND card_id = ?");
-  const apagaPosse = conn.prepare("DELETE FROM owned_card WHERE set_id = ? AND card_id = ?");
-  conn.exec("BEGIN");
-  try {
-    for (const id of cardIds) {
-      stmt.run(setId, id);
-      if (hidden) apagaPosse.run(setId, id);
-    }
-    conn.exec("COMMIT");
-  } catch (err) {
-    conn.exec("ROLLBACK");
-    throw err;
+const TETO_DE_LINHAS = 5000;
+
+async function idsDaTabela(
+  tabela: "owned_card" | "hidden_card",
+  userId: string | null,
+  setId: string,
+): Promise<Set<string>> {
+  if (!userId) return new Set();
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from(tabela)
+    .select("card_id")
+    .eq("user_id", userId)
+    .eq("set_id", setId)
+    .limit(TETO_DE_LINHAS);
+
+  if (error) throw new Error(`${tabela}(${setId}): ${error.message}`);
+  if (data.length === TETO_DE_LINHAS) {
+    throw new Error(
+      `${tabela}(${setId}) bateu o teto de ${TETO_DE_LINHAS} linhas — ` +
+        `o fichario estaria incompleto na tela.`,
+    );
   }
+  return new Set(data.map((r) => r.card_id));
+}
+
+export function getOwnedIds(userId: string | null, setId: string): Promise<Set<string>> {
+  return idsDaTabela("owned_card", userId, setId);
+}
+
+export function getHiddenIds(userId: string | null, setId: string): Promise<Set<string>> {
+  return idsDaTabela("hidden_card", userId, setId);
+}
+
+/** Marca ou desmarca varias cartas de uma vez — usado pelo "tenho todas desta pagina". */
+export async function setOwned(
+  userId: string,
+  setId: string,
+  cardIds: readonly string[],
+  owned: boolean,
+): Promise<void> {
+  if (cardIds.length === 0) return;
+  const supabase = await createClient();
+
+  const { error } = owned
+    ? await supabase.from("owned_card").upsert(
+        cardIds.map((card_id) => ({ user_id: userId, set_id: setId, card_id })),
+        { onConflict: "user_id,set_id,card_id", ignoreDuplicates: true },
+      )
+    : await supabase
+        .from("owned_card")
+        .delete()
+        .eq("user_id", userId)
+        .eq("set_id", setId)
+        .in("card_id", cardIds as string[]);
+
+  if (error) throw new Error(`setOwned(${setId}): ${error.message}`);
+}
+
+/**
+ * Esconde ou revela cartas. Esconder tambem apaga a posse: "nao tenho e nao
+ * quero" — assim, se a carta voltar a aparecer um dia, nao volta marcada por
+ * engano.
+ */
+export async function setHidden(
+  userId: string,
+  setId: string,
+  cardIds: readonly string[],
+  hidden: boolean,
+): Promise<void> {
+  if (cardIds.length === 0) return;
+  const supabase = await createClient();
+
+  if (hidden) {
+    const { error } = await supabase.from("hidden_card").upsert(
+      cardIds.map((card_id) => ({ user_id: userId, set_id: setId, card_id })),
+      { onConflict: "user_id,set_id,card_id", ignoreDuplicates: true },
+    );
+    if (error) throw new Error(`setHidden(${setId}): ${error.message}`);
+    await setOwned(userId, setId, cardIds, false);
+    return;
+  }
+
+  const { error } = await supabase
+    .from("hidden_card")
+    .delete()
+    .eq("user_id", userId)
+    .eq("set_id", setId)
+    .in("card_id", cardIds as string[]);
+  if (error) throw new Error(`setHidden(${setId}): ${error.message}`);
 }
 
 /** Quantas cartas o usuario tem em cada colecao — para a tela inicial. */
-export function ownedCountBySet(): Map<string, number> {
-  const conn = connect();
-  const rows = conn
-    .prepare("SELECT set_id, COUNT(*) AS n FROM owned_card GROUP BY set_id")
-    .all() as { set_id: string; n: number }[];
-  return new Map(rows.map((r) => [r.set_id, r.n]));
+export async function ownedCountBySet(userId: string | null): Promise<Map<string, number>> {
+  if (!userId) return new Map();
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("owned_count_by_set");
+  if (error) throw new Error(`ownedCountBySet: ${error.message}`);
+
+  return new Map((data ?? []).map((r) => [r.set_id, Number(r.n)]));
 }

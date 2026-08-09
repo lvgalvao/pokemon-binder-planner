@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { listSets } from "@/lib/manifests";
 import { ownedCountBySet } from "@/lib/db";
+import { getUserId } from "@/lib/session";
 import { coverUrl } from "@/lib/assets";
 
 export const dynamic = "force-dynamic";
@@ -12,11 +13,12 @@ export const dynamic = "force-dynamic";
  * cabem numa tela rolavel e a capa e reconhecivel de longe. Instrucao seria desculpa.
  *
  * E tambem a tela de primeiro uso — nao existe estado vazio porque nao existe
- * nada para criar antes.
+ * nada para criar antes. Sem sessao ela renderiza igual, com todas as colecoes
+ * zeradas: visitar nao cria conta.
  */
-export default function Home() {
+export default async function Home() {
   const sets = listSets();
-  const owned = ownedCountBySet();
+  const owned = await ownedCountBySet(await getUserId());
 
   return (
     <main className="mx-auto max-w-6xl px-5 pb-16 pt-10 sm:px-8">

@@ -1,4 +1,5 @@
 import { updateBinder } from "@/lib/db";
+import { requireUserId } from "@/lib/session";
 import { getManifest } from "@/lib/manifests";
 import { LAYOUTS, type SortRule } from "@/lib/types";
 
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
     patch.sortRule = sortRule;
   }
 
-  updateBinder(setId, patch);
+  const userId = await requireUserId();
+  await updateBinder(userId, setId, patch);
   return Response.json({ ok: true });
 }

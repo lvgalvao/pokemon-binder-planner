@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getManifest } from "@/lib/manifests";
 import { getBinder, getOwnedIds, getHiddenIds } from "@/lib/db";
+import { getUserId } from "@/lib/session";
 import Binder from "@/components/Binder";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +21,14 @@ export default async function BinderPage({
   const manifest = getManifest(setId);
   if (!manifest) notFound();
 
-  const binder = getBinder(setId);
-  const owned = getOwnedIds(setId);
-  const hidden = getHiddenIds(setId);
+  // Tres consultas independentes: em paralelo elas custam um round-trip, nao
+  // tres. Sem sessao, todas devolvem vazio sem tocar o banco.
+  const userId = await getUserId();
+  const [binder, owned, hidden] = await Promise.all([
+    getBinder(userId, setId),
+    getOwnedIds(userId, setId),
+    getHiddenIds(userId, setId),
+  ]);
 
   return (
     <Binder
