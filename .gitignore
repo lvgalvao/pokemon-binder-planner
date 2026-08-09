@@ -1,0 +1,24 @@
+# Assets: 830 MB de JPGs. Decisao registrada no CLAUDE.md — nao versionar.
+/assets
+
+node_modules
+.next
+out
+*.tsbuildinfo
+next-env.d.ts
+
+# SQLite local (o modo WAL cria tambem -wal e -shm)
+/data/
+
+.env
+.env*.local
+.DS_Store
+npm-debug.log*
+
+# Ferramental local do agente. Os skills são restauráveis por `npx skills install`
+# a partir do skills-lock.json; .mcp.json aponta para um projeto Supabase pessoal
+# que este app não usa (o estado do usuário vive em SQLite local).
+/.agents/
+/.claude/skills/
+/.claude/settings.local.json
+/.mcp.json
