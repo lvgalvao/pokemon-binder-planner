@@ -60,12 +60,14 @@ export async function buildMissingPdf(
 
 /**
  * Quantos downloads simultaneos. As imagens vem do CDN do Supabase, nao mais do
- * disco: um set inteiro sao ~175 arquivos de ~113 KB. Sequencial (como era em
- * disco local, onde custava zero) viraria o gargalo do app — a soma dos RTTs.
- * Oito e alto o bastante para saturar a banda e baixo o bastante para nao levar
- * rate limit do CDN.
+ * disco: sv7 inteiro sao 175 arquivos, 18 MB. Sequencial — como era em disco
+ * local, onde custava zero — viraria a soma dos RTTs.
+ *
+ * Medido nos 175 arquivos de sv7: 8 simultaneos levam 3,3 s, 16 levam 0,8 s, e
+ * 32 nao melhoram mais (0,8 s). Dezesseis e onde a curva dobra, sem forcar o
+ * CDN a mais conexoes do que ele agradece.
  */
-const DOWNLOADS_SIMULTANEOS = 8;
+const DOWNLOADS_SIMULTANEOS = 16;
 
 /**
  * De onde sai o JPEG de uma carta. Injetavel para que os testes de geometria —
