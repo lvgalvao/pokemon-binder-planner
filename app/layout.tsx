@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import ContaRodape from "@/components/ContaRodape";
+import { getSessao } from "@/lib/session";
 
 export const metadata: Metadata = {
   title: "Meu Fichário Pokémon",
@@ -13,10 +15,21 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // A conta vive no rodape das duas telas, sempre no mesmo lugar. Ler a sessao
+  // aqui evita que cada pagina tenha de se lembrar de passa-la adiante.
+  const sessao = await getSessao();
+
   return (
     <html lang="pt-BR">
-      <body className="min-h-dvh antialiased">{children}</body>
+      <body className="min-h-dvh antialiased">
+        {children}
+        <ContaRodape
+          autenticado={sessao !== null}
+          anonima={sessao?.anonima ?? false}
+          email={sessao?.email ?? null}
+        />
+      </body>
     </html>
   );
 }
