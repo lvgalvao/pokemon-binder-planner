@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Image from "next/image";
+import { printUrl } from "@/lib/assets";
 import { cardNumber } from "@/lib/cards";
 import { BUCKET_LABELS, type Card, type SlotItem } from "@/lib/types";
 
@@ -64,12 +65,15 @@ export default function CardViewer({
           proporcao 63x88 se mantem quando a altura da tela e quem limita, sem
           distorcer a carta em telas baixas.
         */}
+        {/* O derivado de impressao, nao o da grade: aqui a carta ocupa metade da
+            tela e os 400w da grade ficariam borrados. E o mesmo arquivo que vai
+            para o PDF — "ver grande" e "imprimir" pedem a mesma resolucao. */}
         <Image
-          src={`/img/${card.imagePath}`}
+          src={printUrl(card)}
           alt={card.name}
           width={733}
           height={1024}
-          sizes="(max-width: 640px) 82vw, 380px"
+          unoptimized
           priority
           draggable={false}
           className="h-auto max-h-[58vh] w-auto max-w-[82vw] rounded-xl shadow-2xl"

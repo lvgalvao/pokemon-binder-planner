@@ -1,11 +1,41 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { inflateSync } from "node:zlib";
+import sharp from "sharp";
 import { PDFDocument, PDFArray, PDFRawStream } from "pdf-lib";
-import { buildMissingPdf, pdfFilename, sheetsNeeded, A4, CARD, MM } from "@/lib/pdf";
+import {
+  buildMissingPdf as build,
+  pdfFilename,
+  sheetsNeeded,
+  A4,
+  CARD,
+  MM,
+} from "@/lib/pdf";
 import { getManifest } from "@/lib/manifests";
 import { sortCards } from "@/lib/cards";
+import type { SlotItem } from "@/lib/types";
 
 const cards = sortCards(getManifest("sv7")!.cards, "number");
+
+/**
+ * Em producao a arte vem do Storage por rede. Estes testes medem GEOMETRIA — a
+ * carta tem de sair com 63 x 88 mm no papel, e isso independe de quais pixels
+ * estao dentro do JPEG. Entao injetamos um JPEG sintetico e a suite fica
+ * hermetica: sem rede, sem assets/ em disco, sem depender do upload.
+ */
+let jpegDeTeste: Uint8Array;
+
+beforeAll(async () => {
+  jpegDeTeste = new Uint8Array(
+    await sharp({
+      create: { width: 733, height: 1024, channels: 3, background: "#c0d0e0" },
+    })
+      .jpeg()
+      .toBuffer(),
+  );
+});
+
+const buildMissingPdf = (itens: readonly SlotItem[]) =>
+  build(itens, async () => jpegDeTeste);
 
 /** Posicoes na versao simples — o caso comum dos testes de geometria. */
 const itens = cards.map((card) => ({ card, variant: "normal" as const }));

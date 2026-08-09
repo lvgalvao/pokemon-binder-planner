@@ -3,15 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { cardNumber } from "@/lib/cards";
+import { webUrl, CARD_BACK_URL } from "@/lib/assets";
 import type { SlotItem } from "@/lib/types";
 
 /**
- * Largura real de um bolso na tela: ~150 px no desktop, ~1/3 da viewport no celular.
- * Os arquivos de origem tem 733x1024 (alguns 1423x1984) — servi-los crus custava
- * 6 MB por par de paginas e ~13 s ate a ultima pintar, mesmo com tudo em cache.
- * Com `sizes`, o otimizador do Next entrega ~150-300 px em webp.
+ * O bolso tem ~150 px no desktop e ~1/3 da viewport no celular. O arquivo `web/`
+ * ja vem em 400w WebP (~34 KB), gerado por tools/upload-assets.mjs — nao passa
+ * pelo otimizador do Next, entao nao ha `sizes` a declarar. Medido: 538 KB e
+ * 1,5 s numa pagina dupla fria, 31 ms e zero bytes na revisita.
  */
-const SIZES = "(max-width: 640px) 30vw, 160px";
 
 /**
  * `eager`, nao `lazy`: so o par de paginas aberto e renderizado, entao toda carta
@@ -110,10 +110,10 @@ export default function CardSlot({
         /* Imagem indisponivel: verso com o numero por cima. Nunca icone quebrado. */
         <>
           <Image
-            src="/img/card-back.jpg"
+            src={CARD_BACK_URL}
             alt=""
             fill
-            sizes={SIZES}
+            unoptimized
             loading={LOADING}
             draggable={false}
             className="carta"
@@ -124,10 +124,10 @@ export default function CardSlot({
         </>
       ) : (
         <Image
-          src={`/img/${card.imagePath}`}
+          src={webUrl(card)}
           alt=""
           fill
-          sizes={SIZES}
+          unoptimized
           loading={LOADING}
           draggable={false}
           onError={() => setFailed(true)}

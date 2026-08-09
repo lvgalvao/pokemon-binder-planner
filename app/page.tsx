@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { listSets } from "@/lib/manifests";
 import { ownedCountBySet } from "@/lib/db";
+import { coverUrl } from "@/lib/assets";
 
 export const dynamic = "force-dynamic";
 
@@ -38,13 +39,14 @@ export default function Home() {
                 className="group block rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--color-tenho)"
               >
                 <div className="overflow-hidden rounded-2xl bg-(--color-mesa-fundo) shadow-sm ring-1 ring-black/5 transition-transform duration-200 group-hover:-translate-y-1 group-active:translate-y-0">
-                  {/* As capas reais tem 366x670. */}
+                  {/* As capas tem 366x670. O derivado WebP tem ~43 KB contra os
+                      926 KB do PNG de origem — 26 capas nesta tela. */}
                   <Image
-                    src={`/img/${set.coverPath}`}
+                    src={coverUrl(set.setId)}
                     alt=""
                     width={366}
                     height={670}
-                    sizes="(max-width: 640px) 46vw, (max-width: 1024px) 30vw, 220px"
+                    unoptimized
                     priority={i < 4}
                     className="aspect-[366/670] w-full object-cover"
                   />

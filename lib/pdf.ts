@@ -1,9 +1,7 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { ASSETS_DIR } from "./manifests";
+import { printUrl } from "./assets";
 import { A4, CARD, MM, PER_PAGE, slotPosition } from "./sheet";
-import type { SlotItem } from "./types";
+import type { Card, SlotItem } from "./types";
 
 export { MM, A4, CARD, GRID, GUTTER, PER_PAGE, sheetsNeeded } from "./sheet";
 
@@ -19,6 +17,7 @@ export { MM, A4, CARD, GRID, GUTTER, PER_PAGE, sheetsNeeded } from "./sheet";
  */
 export async function buildMissingPdf(
   itens: readonly SlotItem[],
+  buscarArte: BuscarArte = baixarDoStorage,
 ): Promise<Uint8Array | null> {
   if (itens.length === 0) return null;
 
@@ -27,7 +26,12 @@ export async function buildMissingPdf(
   pdf.setCreator("Pokémon Binder Planner");
   const fonte = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  // Cache: faltando as duas versoes, a mesma arte e embutida uma vez so.
+  // Faltando a simples E a brilhante, a mesma arte sai duas vezes na folha — mas
+  // e um download so, e um embed so.
+  const distintas = [...new Map(itens.map((i) => [i.card.id, i.card])).values()];
+  const bytesPorCarta = await baixarTudo(distintas, buscarArte);
+
+  // Cache de embed: pdf-lib guarda o objeto ja dentro do documento.
   const embutidas = new Map<string, Awaited<ReturnType<typeof pdf.embedJpg>>>();
 
   for (let i = 0; i < itens.length; i += PER_PAGE) {
@@ -36,11 +40,10 @@ export async function buildMissingPdf(
 
     for (let j = 0; j < batch.length; j++) {
       const { card, variant } = batch[j];
-      let image = embutidas.get(card.imagePath);
+      let image = embutidas.get(card.id);
       if (!image) {
-        const bytes = await readFile(path.join(ASSETS_DIR, card.imagePath));
-        image = await pdf.embedJpg(bytes);
-        embutidas.set(card.imagePath, image);
+        image = await pdf.embedJpg(bytesPorCarta.get(card.id)!);
+        embutidas.set(card.id, image);
       }
 
       const { x, y } = slotPosition(j);
@@ -53,6 +56,58 @@ export async function buildMissingPdf(
   }
 
   return pdf.save();
+}
+
+/**
+ * Quantos downloads simultaneos. As imagens vem do CDN do Supabase, nao mais do
+ * disco: um set inteiro sao ~175 arquivos de ~113 KB. Sequencial (como era em
+ * disco local, onde custava zero) viraria o gargalo do app — a soma dos RTTs.
+ * Oito e alto o bastante para saturar a banda e baixo o bastante para nao levar
+ * rate limit do CDN.
+ */
+const DOWNLOADS_SIMULTANEOS = 8;
+
+/**
+ * De onde sai o JPEG de uma carta. Injetavel para que os testes de geometria —
+ * que so precisam de um JPEG qualquer para medir milimetros — nao dependam de
+ * rede nem de assets/ em disco.
+ */
+export type BuscarArte = (card: Card) => Promise<Uint8Array>;
+
+/** O caminho de producao: o derivado `print/` no CDN do Supabase. */
+async function baixarDoStorage(card: Card): Promise<Uint8Array> {
+  const res = await fetch(printUrl(card), { cache: "force-cache" });
+  if (!res.ok) {
+    throw new Error(`Nao consegui buscar a arte de ${card.id} (HTTP ${res.status})`);
+  }
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/**
+ * Busca a arte de cada carta, com um teto de paralelismo.
+ *
+ * Uma falha aqui derruba o PDF inteiro de proposito: uma folha com um bolso
+ * vazio no meio e pior que um erro claro — a crianca so descobriria depois de
+ * recortar.
+ */
+async function baixarTudo(
+  cards: readonly Card[],
+  buscarArte: BuscarArte,
+): Promise<Map<string, Uint8Array>> {
+  const out = new Map<string, Uint8Array>();
+  let proximo = 0;
+
+  async function trabalhador(): Promise<void> {
+    while (proximo < cards.length) {
+      const card = cards[proximo++];
+      out.set(card.id, await buscarArte(card));
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(DOWNLOADS_SIMULTANEOS, cards.length) }, trabalhador),
+  );
+  return out;
 }
 
 /** Selo no canto superior direito da carta. Sai junto no recorte, de proposito. */

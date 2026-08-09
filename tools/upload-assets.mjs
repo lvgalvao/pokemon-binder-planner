@@ -48,6 +48,17 @@ const BUCKET = "cards";
 const WEB_Q = 72;
 const PRINT_Q = 78;
 const PRINT_MAX = { width: 733, height: 1024 }; // 296 DPI a 63x88 mm
+
+/**
+ * O Storage sobe tudo com `cache-control: no-cache` por padrao, o que faz cada
+ * uma das 18 cartas de uma pagina dupla revalidar contra a origem a cada visita
+ * (`cf-cache-status: REVALIDATED`) — o CDN vira enfeite e o egress conta duas
+ * vezes. O conteudo de um arquivo de carta nunca muda, entao um ano e immutable.
+ *
+ * Immutable so e seguro porque o caminho e imutavel junto: mudar a qualidade dos
+ * derivados exige trocar o prefixo (web2/, print2/), nunca sobrescrever no lugar.
+ */
+const CACHE_CONTROL = "31536000, immutable";
 const ASSETS = path.join(process.cwd(), "assets");
 const MANIFESTS = path.join(process.cwd(), "data", "manifests");
 
@@ -79,7 +90,7 @@ async function jaSubido(prefixo) {
 async function subir(destino, corpo, contentType) {
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(destino, corpo, { contentType, upsert: true });
+    .upload(destino, corpo, { contentType, upsert: true, cacheControl: CACHE_CONTROL });
   if (error) throw new Error(`upload ${destino}: ${error.message}`);
 }
 
