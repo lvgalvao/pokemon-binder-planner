@@ -161,10 +161,10 @@ export default function Binder({
   const persistOwned = useCallback(
     async (ids: string[], value: boolean) => {
       try {
-        const res = await fetch("/api/owned", {
+        const res = await fetch("/api/marcar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ setId, cardIds: ids, owned: value }),
+          body: JSON.stringify({ setId, cardIds: ids, marca: "tenho", valor: value }),
         });
         if (!res.ok) throw new Error();
       } catch {
@@ -197,10 +197,10 @@ export default function Binder({
           return next;
         });
       }
-      void fetch("/api/hidden", {
+      void fetch("/api/marcar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ setId, cardIds: [k], hidden: !escondida }),
+        body: JSON.stringify({ setId, cardIds: [k], marca: "escondida", valor: !escondida }),
       }).catch(() => {
         setHidden((prev) => {
           const next = new Set(prev);

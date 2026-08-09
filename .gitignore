@@ -23,3 +23,6 @@ npm-debug.log*
 /.agents/
 /.claude/skills/
 /.claude/settings.local.json
+
+# Vinculo local com o projeto da Vercel (contem projectId e orgId da maquina).
+.vercel
