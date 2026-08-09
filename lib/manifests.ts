@@ -2,6 +2,15 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { BUCKETS, type Bucket, type Manifest, type SetSummary } from "./types";
 
+/**
+ * Os manifests sao os unicos 740 KB de assets/ que ficam versionados. As imagens
+ * (881 MB) vivem no Storage; estes aqui o servidor precisa ter em maos para montar
+ * o fichario, e sao dado que nunca muda — disco local bate qualquer cache remoto.
+ * Populados por `node tools/sync-manifests.mjs`.
+ */
+export const MANIFESTS_DIR = path.join(process.cwd(), "data", "manifests");
+
+/** Ainda usado pelo PDF e pela rota de imagem enquanto elas leem do disco local. */
 export const ASSETS_DIR = path.join(process.cwd(), "assets");
 
 const BUCKET_SET: ReadonlySet<string> = new Set(BUCKETS);
@@ -34,16 +43,16 @@ let manifestCache: Map<string, Manifest> | null = null;
 function loadAll(): Map<string, Manifest> {
   if (manifestCache) return manifestCache;
   const cache = new Map<string, Manifest>();
-  if (!existsSync(ASSETS_DIR)) {
+  if (!existsSync(MANIFESTS_DIR)) {
     throw new Error(
-      `Pasta assets/ nao encontrada em ${ASSETS_DIR}. ` +
-        `Veja .llm/spec-download-assets.md §11 para popula-la.`,
+      `Pasta data/manifests/ nao encontrada em ${MANIFESTS_DIR}. ` +
+        `Rode \`node tools/sync-manifests.mjs\` (precisa de assets/ populada — ` +
+        `veja .llm/spec-download-assets.md §11).`,
     );
   }
-  for (const entry of readdirSync(ASSETS_DIR, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const file = path.join(ASSETS_DIR, entry.name, "manifest.json");
-    if (!existsSync(file)) continue;
+  for (const entry of readdirSync(MANIFESTS_DIR, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const file = path.join(MANIFESTS_DIR, entry.name);
     const m = validate(JSON.parse(readFileSync(file, "utf8")) as Manifest);
     cache.set(m.setId, m);
   }

@@ -1,13 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { listSets, getManifest, ASSETS_DIR } from "@/lib/manifests";
+import { listSets, getManifest, MANIFESTS_DIR, ASSETS_DIR } from "@/lib/manifests";
 import { BUCKETS } from "@/lib/types";
 
 const sets = listSets();
 
-describe("assets locais", () => {
+describe("manifests versionados", () => {
   it("carrega os 25 sets", () => expect(sets).toHaveLength(25));
+
+  it("todo manifest esta em data/manifests/<setId>.json", () => {
+    for (const s of sets) {
+      expect(existsSync(path.join(MANIFESTS_DIR, `${s.setId}.json`)), s.setId).toBe(true);
+    }
+  });
 
   it("todo manifest tem totalSet coerente com a lista de cartas", () => {
     for (const s of sets) {
@@ -30,6 +36,20 @@ describe("assets locais", () => {
     }
   });
 
+  it("ordena as familias das mais novas para as mais antigas, e numericamente dentro delas", () => {
+    const ids = sets.map((s) => s.setId);
+    expect(ids.indexOf("me4")).toBeLessThan(ids.indexOf("base1"));
+    expect(ids.indexOf("sv10")).toBeLessThan(ids.indexOf("sv1"));
+    expect(ids.indexOf("sv2")).toBeLessThan(ids.indexOf("sv1"));
+  });
+});
+
+/**
+ * assets/ nao esta no repositorio e nao existe no CI nem no deploy. Estas checagens
+ * so fazem sentido na maquina de quem acabou de rodar o downloader — e la elas sao
+ * exatamente o que pega um manifest apontando para uma imagem que nao veio.
+ */
+describe.skipIf(!existsSync(ASSETS_DIR))("assets em disco", () => {
   it("toda capa.png existe em disco", () => {
     for (const s of sets) {
       expect(existsSync(path.join(ASSETS_DIR, s.coverPath)), s.setId).toBe(true);
@@ -48,13 +68,6 @@ describe("assets locais", () => {
       }
     }
     expect(faltando).toEqual([]);
-  });
-
-  it("ordena as familias das mais novas para as mais antigas, e numericamente dentro delas", () => {
-    const ids = sets.map((s) => s.setId);
-    expect(ids.indexOf("me4")).toBeLessThan(ids.indexOf("base1"));
-    expect(ids.indexOf("sv10")).toBeLessThan(ids.indexOf("sv1"));
-    expect(ids.indexOf("sv2")).toBeLessThan(ids.indexOf("sv1"));
   });
 });
 
