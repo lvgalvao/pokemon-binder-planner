@@ -49,15 +49,25 @@ Ownership  → banco, chaveado por SlotItem
 ```
 
 **Variantes simples e brilhante.** Comum, incomum e rara (incluindo Rare Holo)
-existem em duas versões físicas, então ocupam dois bolsos lado a lado. A expansão
-acontece em `expandirVariantes` (`lib/types.ts`), **depois** da ordenação, para o
-par ficar junto tanto por número quanto por raridade. `base1`, `base2` e `base3`
-ficam de fora: reverse holo só surge por volta de 2002 e criar o par ali geraria
-bolsos impossíveis de preencher. sv7 vai de 175 cartas para 300 bolsos.
+existem em mais de uma versão física, então ocupam bolsos lado a lado. A expansão
+acontece em `expandirVariantes` (`lib/types.ts`), **depois** da ordenação, para as
+versões ficarem juntas tanto por número quanto por raridade. `base1`, `base2` e
+`base3` ficam de fora: reverse holo só surge por volta de 2002 e criar o par ali
+geraria bolsos impossíveis de preencher. sv7 vai de 175 cartas para 300 bolsos.
 
-**A chave de posse embute a variante**: `"sv7-2"` para a normal e `"sv7-2#holo"`
-para a brilhante (`itemKey` / `parseItemKey`). Foi essa escolha que dispensou
-migração — tudo que já estava gravado era, por definição, a versão normal.
+**`me2pt5` (Ascended Heroes) tem DOIS reverses**, o de energia e o de pokébola,
+então cada comum/incomum/rara ocupa três bolsos: 295 cartas viram 651 bolsos, e a
+folha 3×3 vai de 53 para 73. Quem decide é `variantesDe(setId, card)` — use ela,
+não `temReverseHolo`, que só responde se há reverse *algum*. O nome da variante
+padrão continua `holo` e não `energia` de propósito: é o que já está gravado como
+`#holo` em todo fichário existente, e renomear obrigaria a migrar posse.
+
+**A chave de posse embute a variante**: `"sv7-2"` para a normal, `"sv7-2#holo"`
+para a brilhante e `"me2pt5-4#pokebola"` para o segundo reverse (`itemKey` /
+`parseItemKey`). Foi essa escolha que dispensou migração — tudo que já estava
+gravado era, por definição, a versão normal. `parseItemKey` recusa sufixo
+desconhecido em vez de tratá-lo como normal: duas chaves diferentes cairiam no
+mesmo bolso e uma marcação apagaria a outra.
 
 `assets/` fica **fora de `public/`** (830 MB). É servido por `app/img/[...path]/route.ts`, que
 valida o caminho contra a whitelist dos 7 buckets antes de tocar o disco.
@@ -89,6 +99,15 @@ então lazy só atrasaria.
 embalagem: `4x3` são 4 bolsos de largura por 3 de altura. A primeira versão invertia isso, e
 nada quebrava porque a contagem de bolsos é a mesma nos dois sentidos — por isso
 `tests/binder.test.ts` exige que a primeira linha de um 4×3 seja `001, 002, 003, 004`.
+
+**As gravações de marcação são serializadas** (`enfileirar`, em `Binder.tsx`), e
+isso não é capricho. A conta anônima nasce dentro do primeiro POST que chega sem
+sessão (`requireUserId`, `lib/session.ts`). Dois toques quase juntos mandam dois
+POSTs sem sessão, e **cada um cria a sua conta**: a última resposta grava o cookie
+por cima da primeira e as cartas da conta perdedora somem da tela, sem erro
+nenhum. Aconteceu de verdade — duas contas nascidas com 35 ms de diferença
+(`01:00:04.228` e `01:00:04.263`), 55 cartas presas na que perdeu o cookie. Era
+isso, e não cookie expirando, que fazia o fichário "perder tudo" ao voltar.
 
 **O toque simples é adiado em 260 ms** (`CardSlot.tsx`) para poder ser cancelado pelo toque duplo.
 Sem essa janela, o primeiro dos dois toques da marcação abriria a carta grande.
