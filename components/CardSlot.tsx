@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { cardNumber } from "@/lib/cards";
 import { webUrl, CARD_BACK_URL } from "@/lib/assets";
-import type { SlotItem } from "@/lib/types";
+import { rotuloVariante, nomeVariante, type SlotItem } from "@/lib/types";
 
 /**
  * O bolso tem ~150 px no desktop e ~1/3 da viewport no celular. O arquivo `web/`
@@ -28,6 +28,8 @@ const JANELA_TOQUE_DUPLO = 260;
 
 type Props = {
   item: SlotItem | null;
+  /** Preciso para o selo: onde ha dois reverses, ele nomeia QUAL. */
+  setId: string;
   owned: boolean;
   highlighted: boolean;
   /** "Nao tenho e nao quero": some da colecao e do PDF. */
@@ -43,6 +45,7 @@ type Props = {
 
 export default function CardSlot({
   item,
+  setId,
   owned,
   highlighted,
   hidden,
@@ -62,10 +65,10 @@ export default function CardSlot({
 
   const { card, variant } = item;
   const holo = variant !== "normal";
-  // Onde a colecao tem os dois reverses, o selo tem de dizer QUAL — dois bolsos
-  // vizinhos com a mesma arte e o mesmo "HOLO" nao se distinguem.
-  const seloVariante = variant === "pokebola" ? "POKÉBOLA" : "HOLO";
-  const nomeVariante = variant === "pokebola" ? " brilhante pokébola" : " brilhante";
+  // Onde a colecao tem os dois reverses, o selo nomeia o padrao (ENERGIA /
+  // POKEBOLA); onde ha um so, segue "HOLO", que e como a crianca ja o chama.
+  const selo = rotuloVariante(setId, variant);
+  const porExtenso = nomeVariante(setId, variant);
   const label = String(cardNumber(card)).padStart(numberWidth, "0");
 
   /**
@@ -102,7 +105,7 @@ export default function CardSlot({
       type="button"
       onClick={aoClicar}
       aria-pressed={owned}
-      aria-label={`${label} ${card.name}${holo ? nomeVariante : ""} — ${
+      aria-label={`${label} ${card.name}${porExtenso ? " " + porExtenso : ""} — ${
         hidden ? "escondida, você não quer essa" : owned ? "você tem" : "está faltando"
       }`}
       // `manipulation` evita que o toque duplo vire zoom no celular.
@@ -152,7 +155,7 @@ export default function CardSlot({
       {/* A imagem e a mesma em todas as versoes; o selo e o que diz qual bolso e qual. */}
       {holo && !hidden && (
         <span className="pointer-events-none absolute top-1 right-1 z-10 rounded-md bg-white/85 px-1.5 py-0.5 text-[0.62rem] leading-none font-bold tracking-wide text-slate-800 shadow-sm">
-          {seloVariante}
+          {selo}
         </span>
       )}
 

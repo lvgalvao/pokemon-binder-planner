@@ -453,6 +453,7 @@ export default function Binder({
         <CardSlot
           key={item ? chave(item) : `folha-${slot}`}
           item={item}
+          setId={setId}
           owned={item ? owned.has(chave(item)) : false}
           highlighted={false}
           hidden={item ? hidden.has(chave(item)) : false}
@@ -484,6 +485,7 @@ export default function Binder({
             <CardSlot
               key={item ? chave(item) : `vazio-${pageNumber}-${slot}`}
               item={item}
+              setId={setId}
               owned={item ? owned.has(chave(item)) : false}
               highlighted={item ? chave(item) === highlight : false}
               numberWidth={numberWidth}
@@ -807,6 +809,7 @@ export default function Binder({
       {aberta && (
         <CardViewer
           item={aberta}
+          setId={setId}
           owned={owned.has(chave(aberta))}
           hidden={hidden.has(chave(aberta))}
           numberWidth={numberWidth}

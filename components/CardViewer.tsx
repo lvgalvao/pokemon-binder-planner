@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import Image from "next/image";
 import { printUrl } from "@/lib/assets";
 import { cardNumber } from "@/lib/cards";
-import { BUCKET_LABELS, type Card, type SlotItem } from "@/lib/types";
+import { BUCKET_LABELS, nomeVariante, type Card, type SlotItem } from "@/lib/types";
 
 /**
  * A carta grande. Um toque simples abre daqui — e a parte divertida: a crianca
@@ -15,6 +15,7 @@ import { BUCKET_LABELS, type Card, type SlotItem } from "@/lib/types";
  */
 export default function CardViewer({
   item,
+  setId,
   owned,
   hidden,
   numberWidth,
@@ -23,6 +24,8 @@ export default function CardViewer({
   onClose,
 }: {
   item: SlotItem;
+  /** Preciso para dizer QUAL brilhante, onde a colecao tem dois reverses. */
+  setId: string;
   owned: boolean;
   hidden: boolean;
   numberWidth: number;
@@ -33,12 +36,8 @@ export default function CardViewer({
   const { card, variant } = item;
   // Ascended Heroes tem dois reverses; aqui, onde a carta esta grande e a
   // crianca esta conferindo, dizer so "brilhante" nao resolveria qual dos dois.
-  const versao =
-    variant === "pokebola"
-      ? " · versão brilhante (pokébola)"
-      : variant === "holo"
-        ? " · versão brilhante (holo)"
-        : "";
+  const porExtenso = nomeVariante(setId, variant);
+  const versao = porExtenso ? ` · versão ${porExtenso}` : "";
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();

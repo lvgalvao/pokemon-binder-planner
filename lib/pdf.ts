@@ -1,7 +1,7 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { printUrl } from "./assets";
 import { A4, CARD, MM, PER_PAGE, slotPosition } from "./sheet";
-import type { Card, SlotItem, Variant } from "./types";
+import { rotuloVariante, type Card, type SlotItem } from "./types";
 
 export { MM, A4, CARD, GRID, GUTTER, PER_PAGE, sheetsNeeded } from "./sheet";
 
@@ -17,6 +17,7 @@ export { MM, A4, CARD, GRID, GUTTER, PER_PAGE, sheetsNeeded } from "./sheet";
  */
 export async function buildMissingPdf(
   itens: readonly SlotItem[],
+  setId: string,
   buscarArte: BuscarArte = baixarDoStorage,
 ): Promise<Uint8Array | null> {
   if (itens.length === 0) return null;
@@ -51,7 +52,8 @@ export async function buildMissingPdf(
 
       // A arte das versoes e identica; sem o selo, os recortes ficariam
       // indistinguiveis e a crianca nao saberia qual bolso preencher com qual.
-      if (variant !== "normal") desenharSeloHolo(page, fonte, x, y, variant);
+      const selo = rotuloVariante(setId, variant);
+      if (selo) desenharSeloHolo(page, fonte, x, y, selo.replace("É", "E"));
     }
   }
 
@@ -124,9 +126,10 @@ function desenharSeloHolo(
   fonte: Awaited<ReturnType<PDFDocument["embedFont"]>>,
   cardX: number,
   cardY: number,
-  variant: Exclude<Variant, "normal">,
+  // Sem acento: o recorte impresso nao ganha nada com o "É" e a Helvetica
+  // padrao do pdf-lib so cobre WinAnsi.
+  texto: string,
 ): void {
-  const texto = variant === "pokebola" ? "POKEBOLA" : "HOLO";
   const corpo = 6.5;
   const larguraTexto = fonte.widthOfTextAtSize(texto, corpo);
   const padX = 3;

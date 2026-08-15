@@ -41,7 +41,7 @@ export async function GET(
   ).filter((i) => !escondidas.has(chave(i)));
   const missing = missingCards(posicoes, possuidas, chave);
 
-  const bytes = await buildMissingPdf(missing);
+  const bytes = await buildMissingPdf(missing, setId);
   if (!bytes) {
     // Colecao completa: nao existe folha em branco para gerar.
     return new Response("Não falta nenhuma carta.", { status: 409 });

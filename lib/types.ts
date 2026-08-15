@@ -126,6 +126,30 @@ export function variantesDe(setId: string, card: Card): Variant[] {
 }
 
 /**
+ * O que o selo do bolso diz.
+ *
+ * Onde ha um reverse so, "HOLO" basta e e o que a crianca ja conhece. Onde ha
+ * dois — Ascended Heroes tem o Energy Symbol Pattern e o Poke Ball's Pattern —
+ * "HOLO" deixa de responder a unica pergunta que importa na hora de encaixar:
+ * QUAL dos dois. Ai os dois selos passam a nomear o padrao, e ficam simetricos:
+ * nenhum deles e "o holo" e o outro "o especial".
+ *
+ * O selo so muda onde ha o que distinguir; as outras 24 colecoes seguem iguais.
+ */
+export function rotuloVariante(setId: string, variant: Variant): string | null {
+  if (variant === "normal") return null;
+  if (variant === "pokebola") return "POKÉBOLA";
+  return SETS_COM_HOLO_POKEBOLA.has(setId) ? "ENERGIA" : "HOLO";
+}
+
+/** A mesma distincao, por extenso, para a carta grande e para os leitores de tela. */
+export function nomeVariante(setId: string, variant: Variant): string {
+  if (variant === "normal") return "";
+  if (variant === "pokebola") return "brilhante pokébola";
+  return SETS_COM_HOLO_POKEBOLA.has(setId) ? "brilhante energia" : "brilhante";
+}
+
+/**
  * Chave de identidade de uma posicao. A versao normal usa o proprio id da carta,
  * entao todo dado gravado antes das variantes continua valendo como "normal" —
  * nada precisou ser reinterpretado.

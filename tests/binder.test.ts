@@ -13,6 +13,7 @@ import {
   layoutKey,
   temReverseHolo,
   variantesDe,
+  rotuloVariante,
   expandirVariantes,
   itemKey,
   parseItemKey,
@@ -273,6 +274,18 @@ describe("versões simples e brilhante", () => {
       cardId: "me2pt5-4",
       variant: "holo",
     });
+  });
+
+  it("o selo nomeia o padrão só onde há dois — nas outras coleções segue HOLO", () => {
+    // Ascended Heroes: Energy Symbol Pattern e Poké Ball's Pattern. "HOLO" ali
+    // não responderia a única pergunta que importa ao encaixar: qual dos dois.
+    expect(rotuloVariante("me2pt5", "holo")).toBe("ENERGIA");
+    expect(rotuloVariante("me2pt5", "pokebola")).toBe("POKÉBOLA");
+    // Onde há um reverse só, "HOLO" basta e é como a criança já o chama.
+    expect(rotuloVariante("sv7", "holo")).toBe("HOLO");
+    // A versão simples não leva selo nenhum.
+    expect(rotuloVariante("me2pt5", "normal")).toBeNull();
+    expect(rotuloVariante("sv7", "normal")).toBeNull();
   });
 
   it("dados reais: Ascended Heroes vai de 295 cartas para 651 bolsos", () => {

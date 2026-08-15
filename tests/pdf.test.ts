@@ -34,8 +34,8 @@ beforeAll(async () => {
   );
 });
 
-const buildMissingPdf = (itens: readonly SlotItem[]) =>
-  build(itens, async () => jpegDeTeste);
+const buildMissingPdf = (itens: readonly SlotItem[], setId = "sv7") =>
+  build(itens, setId, async () => jpegDeTeste);
 
 /** Posicoes na versao simples — o caso comum dos testes de geometria. */
 const itens = cards.map((card) => ({ card, variant: "normal" as const }));
