@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import ContaRodape from "@/components/ContaRodape";
+import ContaTopo from "@/components/ContaTopo";
 import { getSessao } from "@/lib/session";
 
 export const metadata: Metadata = {
@@ -23,6 +24,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="pt-BR">
       <body className="min-h-dvh antialiased">
+        {/* Quem nao tem sessao pode ser alguem cujo fichario existe e esta fora
+            de alcance — e para essa pessoa a tela parece vazia. O caminho de
+            volta fica no topo, antes das cartas. Quem ja entrou nunca ve. */}
+        {sessao === null && <ContaTopo />}
         {children}
         <ContaRodape
           autenticado={sessao !== null}

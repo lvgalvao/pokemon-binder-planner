@@ -40,6 +40,11 @@ export default function ContaRodape({ autenticado, anonima, email }: Props) {
 
   const permanente = autenticado && !anonima;
 
+  // Quem nao tem sessao e atendido no topo, por ContaTopo — la o caminho de
+  // volta e achado por quem esta perdido. Aqui embaixo so ficam as duas acoes
+  // de quem ja esta dentro: guardar o fichario anonimo, ou sair.
+  if (!autenticado) return null;
+
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
     const endereco = valor.trim();
