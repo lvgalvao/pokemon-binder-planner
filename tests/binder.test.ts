@@ -12,6 +12,7 @@ import {
   LAYOUTS,
   layoutKey,
   temReverseHolo,
+  variantesDe,
   expandirVariantes,
   itemKey,
   parseItemKey,
@@ -233,5 +234,50 @@ describe("versões simples e brilhante", () => {
     // base1 não ganha nenhum bolso extra
     const b = getManifest("base1")!;
     expect(expandirVariantes(b.cards, "base1")).toHaveLength(b.cards.length);
+  });
+
+  it("Ascended Heroes tem os dois reverses: energia e pokébola", () => {
+    for (const b of ["01_comum", "02_incomum", "03_raras"] as const) {
+      expect(variantesDe("me2pt5", comum("me2pt5-1", b)), b).toEqual([
+        "normal",
+        "holo",
+        "pokebola",
+      ]);
+    }
+    // A pokébola não vaza para as raridades sem reverse...
+    expect(variantesDe("me2pt5", comum("me2pt5-1", "07_legendaria"))).toEqual(["normal"]);
+    // ...nem para as outras coleções.
+    expect(variantesDe("sv7", comum("sv7-1"))).toEqual(["normal", "holo"]);
+  });
+
+  it("os três bolsos de Ascended Heroes ficam lado a lado", () => {
+    const itens = expandirVariantes([comum("me2pt5-1"), comum("me2pt5-2")], "me2pt5");
+    expect(itens.map((i) => `${i.card.id}:${i.variant}`)).toEqual([
+      "me2pt5-1:normal",
+      "me2pt5-1:holo",
+      "me2pt5-1:pokebola",
+      "me2pt5-2:normal",
+      "me2pt5-2:holo",
+      "me2pt5-2:pokebola",
+    ]);
+  });
+
+  it("a chave da pokébola não colide com a do holo", () => {
+    expect(itemKey("me2pt5-4", "pokebola")).toBe("me2pt5-4#pokebola");
+    expect(parseItemKey("me2pt5-4#pokebola")).toEqual({
+      cardId: "me2pt5-4",
+      variant: "pokebola",
+    });
+    // O que já estava gravado continua sendo o reverse de energia.
+    expect(parseItemKey("me2pt5-4#holo")).toEqual({
+      cardId: "me2pt5-4",
+      variant: "holo",
+    });
+  });
+
+  it("dados reais: Ascended Heroes vai de 295 cartas para 651 bolsos", () => {
+    const m = getManifest("me2pt5")!;
+    // 295 cartas + 178 com reverse × 2 versões brilhantes.
+    expect(expandirVariantes(m.cards, "me2pt5")).toHaveLength(651);
   });
 });

@@ -31,7 +31,14 @@ export default function CardViewer({
   onClose: () => void;
 }) {
   const { card, variant } = item;
-  const holo = variant === "holo";
+  // Ascended Heroes tem dois reverses; aqui, onde a carta esta grande e a
+  // crianca esta conferindo, dizer so "brilhante" nao resolveria qual dos dois.
+  const versao =
+    variant === "pokebola"
+      ? " · versão brilhante (pokébola)"
+      : variant === "holo"
+        ? " · versão brilhante (holo)"
+        : "";
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -85,7 +92,7 @@ export default function CardViewer({
           </span>
           <span className="mt-0.5 block text-sm text-white/60">
             {BUCKET_LABELS[card.bucket]}
-            {holo && " · versão brilhante (holo)"}
+            {versao}
           </span>
         </p>
 

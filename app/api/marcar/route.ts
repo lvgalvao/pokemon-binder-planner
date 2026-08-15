@@ -1,7 +1,7 @@
 import { setOwned, setHidden } from "@/lib/db";
 import { getManifest } from "@/lib/manifests";
 import { requireUserId } from "@/lib/session";
-import { parseItemKey, temReverseHolo } from "@/lib/types";
+import { parseItemKey, variantesDe } from "@/lib/types";
 
 /**
  * As duas marcacoes que a crianca faz num bolso, numa rota so.
@@ -45,14 +45,16 @@ export async function POST(request: Request) {
   const manifest = getManifest(setId);
   if (!manifest) return Response.json({ error: "Coleção não encontrada" }, { status: 404 });
 
-  // Aceita chaves de item: "sv7-2" (normal) e "sv7-2#holo" (brilhante). A versao
-  // brilhante so vale para cartas que de fato tem reverse holo naquele set.
+  // Aceita chaves de item: "sv7-2" (normal), "sv7-2#holo" (brilhante) e
+  // "me2pt5-4#pokebola" (o segundo reverse, so onde a colecao o tem). A conta e
+  // feita pela mesma funcao que monta os bolsos, entao nunca se grava posse de
+  // uma posicao que o fichario nao mostra.
   const porId = new Map(manifest.cards.map((c) => [c.id, c]));
   const accepted = cardIds.filter((key) => {
     const { cardId, variant } = parseItemKey(key);
     const card = porId.get(cardId);
     if (!card) return false;
-    return variant === "normal" || temReverseHolo(setId, card);
+    return variantesDe(setId, card).includes(variant);
   });
   if (accepted.length === 0) {
     return Response.json({ error: "Nenhuma carta válida" }, { status: 400 });

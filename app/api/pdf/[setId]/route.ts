@@ -4,7 +4,7 @@ import { getManifest } from "@/lib/manifests";
 import { sortCards } from "@/lib/cards";
 import { missingCards } from "@/lib/binder";
 import { buildMissingPdf, pdfFilename } from "@/lib/pdf";
-import { expandirVariantes, itemKey } from "@/lib/types";
+import { expandirVariantes, itemKey, type SlotItem } from "@/lib/types";
 
 /**
  * PDF A4 das cartas faltantes em tamanho real (63 x 88 mm), 9 por folha.
@@ -32,10 +32,9 @@ export async function GET(
     getHiddenIds(userId, setId),
     getOwnedIds(userId, setId),
   ]);
-  // Cada posicao faltante vira uma carta na folha: faltando a simples E a
-  // brilhante, a mesma arte sai duas vezes — sao dois bolsos a preencher.
-  const chave = (i: { card: { id: string }; variant: "normal" | "holo" }) =>
-    itemKey(i.card.id, i.variant);
+  // Cada posicao faltante vira uma carta na folha: faltando a simples E as
+  // brilhantes, a mesma arte sai uma vez por bolso a preencher.
+  const chave = (i: SlotItem) => itemKey(i.card.id, i.variant);
   const posicoes = expandirVariantes(
     sortCards(manifest.cards, binder.sortRule),
     setId,

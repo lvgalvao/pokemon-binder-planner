@@ -1,7 +1,7 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { printUrl } from "./assets";
 import { A4, CARD, MM, PER_PAGE, slotPosition } from "./sheet";
-import type { Card, SlotItem } from "./types";
+import type { Card, SlotItem, Variant } from "./types";
 
 export { MM, A4, CARD, GRID, GUTTER, PER_PAGE, sheetsNeeded } from "./sheet";
 
@@ -49,9 +49,9 @@ export async function buildMissingPdf(
       const { x, y } = slotPosition(j);
       page.drawImage(image, { x, y, width: CARD.width, height: CARD.height });
 
-      // A arte das duas versoes e identica; sem o selo, os dois recortes ficariam
+      // A arte das versoes e identica; sem o selo, os recortes ficariam
       // indistinguiveis e a crianca nao saberia qual bolso preencher com qual.
-      if (variant === "holo") desenharSeloHolo(page, fonte, x, y);
+      if (variant !== "normal") desenharSeloHolo(page, fonte, x, y, variant);
     }
   }
 
@@ -112,14 +112,21 @@ async function baixarTudo(
   return out;
 }
 
-/** Selo no canto superior direito da carta. Sai junto no recorte, de proposito. */
+/**
+ * Selo no canto superior direito da carta. Sai junto no recorte, de proposito.
+ *
+ * Onde ha dois reverses (Ascended Heroes), o selo tem de dizer QUAL: tres
+ * recortes da mesma arte chegam a tesoura, e "HOLO" em dois deles mandaria a
+ * crianca decidir no chute qual bolso e de qual.
+ */
 function desenharSeloHolo(
   page: ReturnType<PDFDocument["addPage"]>,
   fonte: Awaited<ReturnType<PDFDocument["embedFont"]>>,
   cardX: number,
   cardY: number,
+  variant: Exclude<Variant, "normal">,
 ): void {
-  const texto = "HOLO";
+  const texto = variant === "pokebola" ? "POKEBOLA" : "HOLO";
   const corpo = 6.5;
   const larguraTexto = fonte.widthOfTextAtSize(texto, corpo);
   const padX = 3;

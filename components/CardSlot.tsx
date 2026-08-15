@@ -61,7 +61,11 @@ export default function CardSlot({
   if (!item) return <div className="bolso bolso-vazio" aria-hidden />;
 
   const { card, variant } = item;
-  const holo = variant === "holo";
+  const holo = variant !== "normal";
+  // Onde a colecao tem os dois reverses, o selo tem de dizer QUAL — dois bolsos
+  // vizinhos com a mesma arte e o mesmo "HOLO" nao se distinguem.
+  const seloVariante = variant === "pokebola" ? "POKÉBOLA" : "HOLO";
+  const nomeVariante = variant === "pokebola" ? " brilhante pokébola" : " brilhante";
   const label = String(cardNumber(card)).padStart(numberWidth, "0");
 
   /**
@@ -98,7 +102,7 @@ export default function CardSlot({
       type="button"
       onClick={aoClicar}
       aria-pressed={owned}
-      aria-label={`${label} ${card.name}${holo ? " brilhante" : ""} — ${
+      aria-label={`${label} ${card.name}${holo ? nomeVariante : ""} — ${
         hidden ? "escondida, você não quer essa" : owned ? "você tem" : "está faltando"
       }`}
       // `manipulation` evita que o toque duplo vire zoom no celular.
@@ -145,10 +149,10 @@ export default function CardSlot({
         </span>
       )}
 
-      {/* A imagem e a mesma nas duas versoes; o selo e o que diz qual bolso e qual. */}
+      {/* A imagem e a mesma em todas as versoes; o selo e o que diz qual bolso e qual. */}
       {holo && !hidden && (
         <span className="pointer-events-none absolute top-1 right-1 z-10 rounded-md bg-white/85 px-1.5 py-0.5 text-[0.62rem] leading-none font-bold tracking-wide text-slate-800 shadow-sm">
-          HOLO
+          {seloVariante}
         </span>
       )}
 

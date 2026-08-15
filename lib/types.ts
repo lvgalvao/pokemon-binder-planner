@@ -71,8 +71,19 @@ export function layoutKey(columns: number, rows: number): string {
   return `${columns}x${rows}`;
 }
 
-/** Uma carta comum/incomum/rara existe em duas versoes fisicas distintas. */
-export type Variant = "normal" | "holo";
+/**
+ * As versoes fisicas de uma mesma carta.
+ *
+ * `holo` e o reverse holo comum — o de fundo com simbolos de energia, que
+ * existe desde 2002 e e o unico na maioria das colecoes. `pokebola` e o
+ * segundo padrao de reverse, com pokebolas no fundo, que so algumas colecoes
+ * tem (ver SETS_COM_HOLO_POKEBOLA).
+ *
+ * `holo` continua sendo o nome do reverse padrao, e nao "energia", de
+ * proposito: e o que ja esta gravado como `#holo` em todo fichario existente.
+ * Renomear obrigaria a migrar posse; assim a colecao nova so acrescenta.
+ */
+export type Variant = "normal" | "holo" | "pokebola";
 
 /** Uma posicao do fichario: uma carta numa versao especifica. */
 export type SlotItem = { card: Card; variant: Variant };
@@ -96,17 +107,43 @@ export function temReverseHolo(setId: string, card: Card): boolean {
 }
 
 /**
+ * Colecoes com DOIS padroes de reverse holo: o de energia e o de pokebola.
+ * Cada comum, incomum e rara ocupa entao tres bolsos em vez de dois — em
+ * Ascended Heroes sao 178 cartas assim, o que leva a folha 3x3 de 53 para 73.
+ */
+const SETS_COM_HOLO_POKEBOLA = new Set(["me2pt5"]);
+
+export function temHoloPokebola(setId: string, card: Card): boolean {
+  return SETS_COM_HOLO_POKEBOLA.has(setId) && temReverseHolo(setId, card);
+}
+
+/** As versoes que uma carta tem naquela colecao, na ordem em que vao ao bolso. */
+export function variantesDe(setId: string, card: Card): Variant[] {
+  if (!temReverseHolo(setId, card)) return ["normal"];
+  return temHoloPokebola(setId, card)
+    ? ["normal", "holo", "pokebola"]
+    : ["normal", "holo"];
+}
+
+/**
  * Chave de identidade de uma posicao. A versao normal usa o proprio id da carta,
  * entao todo dado gravado antes das variantes continua valendo como "normal" —
  * nada precisou ser reinterpretado.
  */
 export function itemKey(cardId: string, variant: Variant): string {
-  return variant === "holo" ? `${cardId}#holo` : cardId;
+  return variant === "normal" ? cardId : `${cardId}#${variant}`;
 }
 
 export function parseItemKey(key: string): { cardId: string; variant: Variant } {
-  return key.endsWith("#holo")
-    ? { cardId: key.slice(0, -5), variant: "holo" }
+  const corte = key.lastIndexOf("#");
+  if (corte === -1) return { cardId: key, variant: "normal" };
+
+  const sufixo = key.slice(corte + 1);
+  // Sufixo desconhecido nao vira "normal": duas chaves diferentes cairiam no
+  // mesmo bolso e uma marcacao apagaria a outra. Fica como veio, e a validacao
+  // contra o manifest em /api/marcar a recusa.
+  return sufixo === "holo" || sufixo === "pokebola"
+    ? { cardId: key.slice(0, corte), variant: sufixo }
     : { cardId: key, variant: "normal" };
 }
 
@@ -117,8 +154,7 @@ export function parseItemKey(key: string): { cardId: string; variant: Variant } 
 export function expandirVariantes(cards: readonly Card[], setId: string): SlotItem[] {
   const out: SlotItem[] = [];
   for (const card of cards) {
-    out.push({ card, variant: "normal" });
-    if (temReverseHolo(setId, card)) out.push({ card, variant: "holo" });
+    for (const variant of variantesDe(setId, card)) out.push({ card, variant });
   }
   return out;
 }
