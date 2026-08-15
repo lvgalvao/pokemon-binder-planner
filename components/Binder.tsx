@@ -37,6 +37,29 @@ type Props = {
  */
 type View = "full" | "mine" | "missing";
 
+/**
+ * Toda gravacao de marcacao passa por aqui, uma de cada vez.
+ *
+ * Nao e capricho: a conta anonima nasce dentro do primeiro POST que chega sem
+ * sessao (lib/session.ts). Dois toques quase juntos — duas cartas seguidas, ou
+ * um "tenho todas" logo apos uma marcacao — mandam dois POSTs sem sessao, e
+ * CADA UM cria a sua conta. A ultima resposta grava o cookie por cima da
+ * primeira, e as cartas da conta perdedora somem da tela sem erro nenhum.
+ *
+ * Isso aconteceu de verdade: duas contas nascidas com 35 ms de diferenca, 55
+ * cartas presas na que perdeu o cookie. A fila custa um round-trip de espera
+ * na primeira marcacao — a interface ja mudou de cor antes disso — e elimina a
+ * corrida na origem, sem precisar detectar se ja existe sessao.
+ */
+let filaDeGravacao: Promise<unknown> = Promise.resolve();
+
+function enfileirar<T>(tarefa: () => Promise<T>): Promise<T> {
+  const proxima = filaDeGravacao.then(tarefa, tarefa);
+  // A fila nunca pode ficar rejeitada, senao uma falha travaria as seguintes.
+  filaDeGravacao = proxima.catch(() => {});
+  return proxima;
+}
+
 /** Tem de bater com a animacao `.folha-virando` do globals.css. */
 const DURACAO_DA_VIRADA = 433;
 
@@ -161,11 +184,13 @@ export default function Binder({
   const persistOwned = useCallback(
     async (ids: string[], value: boolean) => {
       try {
-        const res = await fetch("/api/marcar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ setId, cardIds: ids, marca: "tenho", valor: value }),
-        });
+        const res = await enfileirar(() =>
+          fetch("/api/marcar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ setId, cardIds: ids, marca: "tenho", valor: value }),
+          }),
+        );
         if (!res.ok) throw new Error();
       } catch {
         setOwned((prev) => {
@@ -197,10 +222,13 @@ export default function Binder({
           return next;
         });
       }
-      void fetch("/api/marcar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ setId, cardIds: [k], marca: "escondida", valor: !escondida }),
+      void enfileirar(async () => {
+        const res = await fetch("/api/marcar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ setId, cardIds: [k], marca: "escondida", valor: !escondida }),
+        });
+        if (!res.ok) throw new Error();
       }).catch(() => {
         setHidden((prev) => {
           const next = new Set(prev);
