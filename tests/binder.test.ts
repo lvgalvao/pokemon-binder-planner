@@ -192,9 +192,16 @@ describe("versões simples e brilhante", () => {
       "05_arte_secreta",
       "06_duplo_arte_secreta",
       "07_legendaria",
+      "08_promo",
     ] as const) {
       expect(temReverseHolo("sv7", comum("sv7-1", b)), b).toBe(false);
     }
+  });
+
+  it("promo ocupa um bolso só — a carta existe numa versão única", () => {
+    const promo = comum("mep-29", "08_promo");
+    expect(variantesDe("mep", promo)).toEqual(["normal"]);
+    expect(expandirVariantes([promo], "mep")).toHaveLength(1);
   });
 
   it("Base Set, Jungle e Fossil (1999) não têm reverse holo", () => {

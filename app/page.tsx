@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Tela 1 — escolher a colecao.
- * A grade de capas e a interface. Sem busca, sem filtro, sem ordenacao: 25 itens
+ * A grade de capas e a interface. Sem busca, sem filtro, sem ordenacao: 27 itens
  * cabem numa tela rolavel e a capa e reconhecivel de longe. Instrucao seria desculpa.
  *
  * E tambem a tela de primeiro uso — nao existe estado vazio porque nao existe
@@ -42,7 +42,7 @@ export default async function Home() {
               >
                 <div className="overflow-hidden rounded-2xl bg-(--color-mesa-fundo) shadow-sm ring-1 ring-black/5 transition-transform duration-200 group-hover:-translate-y-1 group-active:translate-y-0">
                   {/* As capas tem 366x670. O derivado WebP tem ~43 KB contra os
-                      926 KB do PNG de origem — 26 capas nesta tela. */}
+                      926 KB do PNG de origem — 27 capas nesta tela. */}
                   <Image
                     src={coverUrl(set.setId)}
                     alt=""

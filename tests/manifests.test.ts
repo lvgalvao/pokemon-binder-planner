@@ -7,7 +7,7 @@ import { BUCKETS } from "@/lib/types";
 const sets = listSets();
 
 describe("manifests versionados", () => {
-  it("carrega os 25 sets", () => expect(sets).toHaveLength(25));
+  it("carrega os 27 sets", () => expect(sets).toHaveLength(27));
 
   it("todo manifest esta em data/manifests/<setId>.json", () => {
     for (const s of sets) {
@@ -28,7 +28,7 @@ describe("manifests versionados", () => {
     }
   });
 
-  it("todo bucket e um dos 7 literais", () => {
+  it("todo bucket e um dos literais conhecidos", () => {
     for (const s of sets) {
       for (const c of getManifest(s.setId)!.cards) {
         expect(BUCKETS).toContain(c.bucket);
@@ -36,11 +36,28 @@ describe("manifests versionados", () => {
     }
   });
 
+  it("as promos estao todas no bucket promo e so elas", () => {
+    for (const s of sets) {
+      for (const c of getManifest(s.setId)!.cards) {
+        expect(c.bucket === "08_promo", `${c.id} (${c.rarityRaw})`).toBe(
+          c.rarityRaw.toLowerCase() === "promo",
+        );
+      }
+    }
+  });
+
   it("ordena as familias das mais novas para as mais antigas, e numericamente dentro delas", () => {
     const ids = sets.map((s) => s.setId);
+    expect(ids.indexOf("me5")).toBeLessThan(ids.indexOf("me1"));
     expect(ids.indexOf("me4")).toBeLessThan(ids.indexOf("base1"));
     expect(ids.indexOf("sv10")).toBeLessThan(ids.indexOf("sv1"));
     expect(ids.indexOf("sv2")).toBeLessThan(ids.indexOf("sv1"));
+  });
+
+  it("as promos fecham a familia: depois de me1, antes da familia seguinte", () => {
+    const ids = sets.map((s) => s.setId);
+    expect(ids.indexOf("me1")).toBeLessThan(ids.indexOf("mep"));
+    expect(ids.indexOf("mep")).toBeLessThan(ids.indexOf("zsv10pt5"));
   });
 });
 

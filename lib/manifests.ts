@@ -70,6 +70,10 @@ export function resetManifestCache(): void {
  * (a spec de assets nao a inclui), entao a ordem sai do prefixo do setId —
  * familias das mais novas para as mais antigas — e, dentro da familia, numerica:
  * sv1, sv2, ..., sv10 (nunca sv1, sv10, sv2).
+ *
+ * Id sem numero depois do prefixo — hoje so `mep`, as promos — fica no fim da
+ * sua familia, que e onde ele deve estar: a promo nao e a colecao seguinte, e o
+ * extra da era. Sai de graca do `?? 0`, ja que as demais pontuam negativo.
  */
 const FAMILY_ORDER = ["me", "zsv", "rsv", "sv", "pgo", "base"];
 

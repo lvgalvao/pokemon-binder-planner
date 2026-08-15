@@ -26,14 +26,37 @@ npx vitest run -t "regressao zsv10pt5"        # um teste pelo nome
 npx tsc --noEmit         # typecheck
 ```
 
+Repovoar uma coleção (precisa de `assets/`, ver `.llm/spec-download-assets.md` §11):
+
+```bash
+node tools/download-cards.mjs --set me5                       # de api.pokemontcg.io
+node tools/download-cards.mjs --set mep --fonte tcgdex \
+  --nome "Promos Mega Evolution"                              # só a tcgdex tem promo
+node tools/capa-promos.mjs --set mep --carta mep-29           # capa de quem não tem pacote
+node tools/sync-manifests.mjs                                 # assets/ -> data/manifests/
+node tools/upload-assets.mjs --set me5                        # derivados -> Supabase Storage
+```
+
 Não há passo de banco: o SQLite se cria sozinho em `data/binder.db` na primeira execução.
 
 ## Arquitetura
 
-**Sem Pokémon TCG API.** Os dados vêm de `assets/<setId>/manifest.json`, lidos do disco e
-cacheados em memória (`lib/manifests.ts`). Sem chave, sem rate limit, funciona offline. Os 25
-sets estão completos (`unmapped = 0`, `totalSet == len(cards)` em todos). O PRD §29–§33 descreve
-um `PokemonTcgService` que **não existe** e não deve ser criado sem necessidade nova.
+**Sem Pokémon TCG API em tempo de execução.** Os dados vêm de `assets/<setId>/manifest.json`,
+lidos do disco e cacheados em memória (`lib/manifests.ts`). Sem chave, sem rate limit, funciona
+offline. Os 27 sets têm `unmapped = 0` e `totalSet == len(cards)`. O PRD §29–§33 descreve um
+`PokemonTcgService` que **não existe** e não deve ser criado sem necessidade nova.
+
+**A API só aparece no downloader**, `tools/download-cards.mjs`, rodado à mão. Ele fala duas
+fontes porque nenhuma sozinha dá conta:
+
+- `pokemontcg` (api.pokemontcg.io/v2) — as 26 coleções normais, imagens 733×1024. **Instável**:
+  numa medição de 8 chamadas, 3 voltaram 500/502. Daí o retry com backoff.
+- `tcgdex` (api.tcgdex.net/v2/en) — a única com as promos. Imagens 600×825, os mesmos 242 DPI
+  já aceitos em `base1`–`base3` e `sv6pt5`. Cai por períodos longos, não por chamadas isoladas.
+
+A spec de assets §11 manda usar um `download_cards.py` que vive no projeto `PokeTCG`. Aqui ele
+virou Node porque `sharp` já é dependência (dispensa venv e Pillow) e porque o script Python
+fala uma fonte só. A saída é a mesma da spec §2 e §5 — `tests/manifests.test.ts` cobre a forma.
 
 **Sem ORM.** `node:sqlite` embutido no Node 22 (`lib/db.ts`). Duas tabelas, só estado do usuário:
 `binder` (layout e ordem por coleção) e `owned_card` (presença da linha = possui). O PRD sugeria
@@ -61,6 +84,15 @@ folha 3×3 vai de 53 para 73. Quem decide é `variantesDe(setId, card)` — use 
 não `temReverseHolo`, que só responde se há reverse *algum*. O nome da variante
 padrão continua `holo` e não `energia` de propósito: é o que já está gravado como
 `#holo` em todo fichário existente, e renomear obrigaria a migrar posse.
+
+**Promo é o 8º bucket, e uma coleção inteira.** A spec de assets §2 declara 7 buckets fixos e
+§4 manda descartar raridade não mapeada — foi por isso que promo nunca apareceu. Mas promo não
+é uma raridade dentro de uma coleção: é uma coleção própria por era (as *Black Star Promos*),
+sem vínculo com nenhum set em fonte nenhuma. Daí `08_promo` em `BUCKETS` (`lib/types.ts`), que
+fica **por último** e **fora de `BUCKETS_COM_REVERSE`**: promo existe numa versão única, e o par
+só criaria bolso impossível de preencher — a coleção inteira em dobro. Numa coleção só de promos
+todas as cartas caem no mesmo bucket, então a ordenação por raridade vira a numérica, que é o
+que se quer.
 
 **A chave de posse embute a variante**: `"sv7-2"` para a normal, `"sv7-2#holo"`
 para a brilhante e `"me2pt5-4#pokebola"` para o segundo reverse (`itemKey` /
@@ -128,6 +160,14 @@ iça qualquer `@theme` para o topo, e a paleta escura passa a valer sempre.
 
 - **Duas telas.** Tocar na coleção abre o fichário já montado em 3×3. O formato é um interruptor
   dentro da tela, com efeito imediato — não uma pergunta antes de mostrar qualquer coisa.
+- **As promos são uma coleção, não um apêndice das outras.** Espalhá-las dentro de cada set
+  quebraria o fichário físico, que segue a numeração impressa — e a promo não tem número dentro
+  do set. Ela aparece como `mep` ("Promos Mega Evolution"), fechando a família na tela inicial.
+  A coleção nasce **incompleta na origem**: das 89 promos catalogadas, só 40 têm arte publicada.
+  As outras não entram no manifest (que reflete o disco), então o fichário não ganha bolso
+  permanentemente vazio e "O que falta" ainda pode zerar. Repetir `download-cards.mjs` mais
+  tarde só acrescenta. A capa não é pacote — promo não vem em pacote — e sim a carta mais
+  reconhecível da coleção, montada por `tools/capa-promos.mjs`.
 - **Ordem fixa por raridade**, sem opção: comuns primeiro, lendárias por último, número crescente
   dentro de cada raridade. É como o fichário é montado de verdade. `sortCards` ainda aceita
   `"number"` e é testada nos dois modos, mas a interface não oferece a escolha.

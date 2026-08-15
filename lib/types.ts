@@ -1,4 +1,16 @@
-/** Um dos 7 buckets de raridade fixos da spec de assets (.llm/spec-download-assets.md §2). */
+/**
+ * Os buckets de raridade, na ordem em que vao ao fichario.
+ *
+ * Os 7 primeiros sao os da spec de assets (.llm/spec-download-assets.md §2), que
+ * os declara fixos e literais. `08_promo` e acrescimo nosso: promo nao e uma
+ * raridade dentro de uma colecao, e uma colecao inteira ("Promos Mega Evolution",
+ * as Black Star Promos), e a spec mandava jogar fora — §4, regra de fallback 2,
+ * raridade nao mapeada nao e baixada. Sem um bucket para ela, a colecao nao existe.
+ *
+ * Fica por ultimo porque e onde uma promo perdida dentro de uma colecao normal
+ * deve cair: depois de tudo, como extra. Numa colecao so de promos a posicao nao
+ * importa — todas as cartas estao no mesmo bucket e a ordem vira a numerica.
+ */
 export const BUCKETS = [
   "01_comum",
   "02_incomum",
@@ -7,6 +19,7 @@ export const BUCKETS = [
   "05_arte_secreta",
   "06_duplo_arte_secreta",
   "07_legendaria",
+  "08_promo",
 ] as const;
 
 export type Bucket = (typeof BUCKETS)[number];
@@ -20,6 +33,7 @@ export const BUCKET_LABELS: Record<Bucket, string> = {
   "05_arte_secreta": "Arte secreta",
   "06_duplo_arte_secreta": "Dupla arte secreta",
   "07_legendaria": "Lendária",
+  "08_promo": "Promo",
 };
 
 /** Uma carta, exatamente como vem do manifest. Dado externo, somente leitura. */
@@ -39,7 +53,12 @@ export type Manifest = {
   downloaderVersion: string;
   totalSet: number;
   cards: Card[];
-  totalsByBucket: Record<Bucket, number>;
+  /**
+   * Pre-computado pelo downloader. Nos manifests gerados antes do `08_promo`
+   * essa chave nao existe — por isso ninguem le daqui: quem precisa da contagem
+   * chama `bucketTotals()`, que varre `cards` e garante os buckets todos.
+   */
+  totalsByBucket: Partial<Record<Bucket, number>>;
   unmapped: { id: string; name: string; rarityRaw: string }[];
 };
 
@@ -95,7 +114,12 @@ export type SlotItem = { card: Card; variant: Variant };
  */
 const SETS_SEM_REVERSE_HOLO = new Set(["base1", "base2", "base3"]);
 
-/** So comum, incomum e rara (incluindo Rare Holo) tem reverse. */
+/**
+ * So comum, incomum e rara (incluindo Rare Holo) tem reverse. Promo fica de fora
+ * pela mesma razao das cartas de 1999: a promo existe numa versao unica, entao o
+ * par so criaria bolso impossivel de preencher — e a colecao inteira das promos
+ * cairia em dobro.
+ */
 const BUCKETS_COM_REVERSE: ReadonlySet<Bucket> = new Set<Bucket>([
   "01_comum",
   "02_incomum",
