@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { sortCards, cardNumber } from "@/lib/cards";
 import { generateSlots, missingCards, progress, findCardPage } from "@/lib/binder";
-import { sheetsNeeded } from "@/lib/sheet";
 import {
   LAYOUTS,
   layoutKey,
@@ -14,6 +13,7 @@ import {
   type SlotItem,
   type SortRule,
 } from "@/lib/types";
+import BlocoDeImpressao from "./BlocoDeImpressao";
 import CardSlot from "./CardSlot";
 import CardViewer from "./CardViewer";
 import FindCard from "./FindCard";
@@ -23,19 +23,24 @@ type Props = {
   setName: string;
   cards: Card[];
   initialOwned: string[];
-  initialHidden: string[];
+  initialStarred: string[];
   initialRows: number;
   initialColumns: number;
   initialSortRule: SortRule;
 };
 
 /**
- * Tres olhares sobre a mesma colecao:
+ * Quatro olhares sobre a mesma colecao:
  *  - `full`    o fichario inteiro, faltantes em cinza — e onde se faz a varredura
  *  - `mine`    so o que ele tem, sem buracos — o fichario como esta na mesa
- *  - `missing` so o que falta, sem buracos — a lista de caca, e o que vai no PDF
+ *  - `missing` so o que falta, sem buracos — a lista de caca
+ *  - `star`    so as que ele quer muito, tenha ou nao — a lista de desejos
+ *
+ * A estrela nao e um quinto estado da carta: e uma marca por cima dos outros.
+ * Por isso este modo mostra tambem as que ele ja conquistou — ver a estrela ja
+ * verde e metade da graca de ter marcado.
  */
-type View = "full" | "mine" | "missing";
+type View = "full" | "mine" | "missing" | "star";
 
 /**
  * Toda gravacao de marcacao passa por aqui, uma de cada vez.
@@ -68,14 +73,13 @@ export default function Binder({
   setName,
   cards,
   initialOwned,
-  initialHidden,
+  initialStarred,
   initialRows,
   initialColumns,
   initialSortRule,
 }: Props) {
   const [owned, setOwned] = useState<Set<string>>(() => new Set(initialOwned));
-  const [hidden, setHidden] = useState<Set<string>>(() => new Set(initialHidden));
-  const [revelarEscondidas, setRevelarEscondidas] = useState(false);
+  const [starred, setStarred] = useState<Set<string>>(() => new Set(initialStarred));
   const [rows, setRows] = useState(initialRows);
   const [columns, setColumns] = useState(initialColumns);
   const [sortRule, setSortRule] = useState<SortRule>(initialSortRule);
@@ -102,11 +106,6 @@ export default function Binder({
   const ladoDirRef = useRef<HTMLDivElement>(null);
   const argolasRef = useRef<HTMLDivElement>(null);
 
-  /**
-   * Escondidas ("nao tenho e nao quero") somem da colecao antes de qualquer
-   * ordenacao — some por numero e por raridade igual. So reaparecem quando ele
-   * pede para revelar, para poder desfazer.
-   */
   const ordenadas = useMemo(() => sortCards(cards, sortRule), [cards, sortRule]);
 
   /**
@@ -121,27 +120,28 @@ export default function Binder({
 
   const chave = (i: SlotItem) => itemKey(i.card.id, i.variant);
 
-  const ordered = useMemo(
-    () => (revelarEscondidas ? posicoes : posicoes.filter((i) => !hidden.has(chave(i)))),
-    [posicoes, hidden, revelarEscondidas],
-  );
-
   /**
    * "O que eu tenho" remonta o fichario apenas com as cartas que ele possui,
    * fechando os buracos. E o fichario como esta de verdade na mesa: a crianca
    * encaixa as cartas em sequencia, nao deixa bolso reservado para o que falta.
    */
   const naPagina = useMemo(() => {
-    if (view === "mine") return ordered.filter((i) => owned.has(chave(i)));
-    if (view === "missing") return ordered.filter((i) => !owned.has(chave(i)));
-    return ordered;
-  }, [ordered, view, owned]);
+    if (view === "mine") return posicoes.filter((i) => owned.has(chave(i)));
+    if (view === "missing") return posicoes.filter((i) => !owned.has(chave(i)));
+    if (view === "star") return posicoes.filter((i) => starred.has(chave(i)));
+    return posicoes;
+  }, [posicoes, view, owned, starred]);
   const pages = useMemo(
     () => generateSlots(naPagina, rows, columns),
     [naPagina, rows, columns],
   );
-  const missing = useMemo(() => missingCards(ordered, owned, chave), [ordered, owned]);
-  const stats = progress(posicoes.length - hidden.size, owned.size);
+  const missing = useMemo(() => missingCards(posicoes, owned, chave), [posicoes, owned]);
+  /** As estrelas que ainda faltam — as unicas que precisam de recorte. */
+  const estrelasFaltando = useMemo(
+    () => missing.filter((i) => starred.has(chave(i))),
+    [missing, starred],
+  );
+  const stats = progress(posicoes.length, owned.size);
   const numberWidth = Math.max(String(cards.length).length, 2);
 
   const spreadCount = Math.max(1, Math.ceil(pages.length / 2));
@@ -205,41 +205,38 @@ export default function Binder({
     [setId],
   );
 
-  const toggleHidden = useCallback(
+  /**
+   * Poe ou tira a estrela. Nao mexe na posse, ao contrario do esconder que
+   * existia aqui: "quero muito" e "ja tenho" convivem, e a carta continua no
+   * fichario e na conta das faltantes.
+   */
+  const toggleStar = useCallback(
     (item: SlotItem) => {
       const k = itemKey(item.card.id, item.variant);
-      const escondida = hidden.has(k);
-      setHidden((prev) => {
+      const tinha = starred.has(k);
+      setStarred((prev) => {
         const next = new Set(prev);
-        escondida ? next.delete(k) : next.add(k);
+        tinha ? next.delete(k) : next.add(k);
         return next;
       });
-      // Esconder tambem tira a posse: e "nao tenho E nao quero".
-      if (!escondida) {
-        setOwned((prev) => {
-          const next = new Set(prev);
-          next.delete(k);
-          return next;
-        });
-      }
       void enfileirar(async () => {
         const res = await fetch("/api/marcar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ setId, cardIds: [k], marca: "escondida", valor: !escondida }),
+          body: JSON.stringify({ setId, cardIds: [k], marca: "estrela", valor: !tinha }),
         });
         if (!res.ok) throw new Error();
       }).catch(() => {
-        setHidden((prev) => {
+        setStarred((prev) => {
           const next = new Set(prev);
-          escondida ? next.add(k) : next.delete(k);
+          tinha ? next.add(k) : next.delete(k);
           return next;
         });
         setErro("Não consegui salvar. Tente de novo.");
         setTimeout(() => setErro(null), 3500);
       });
     },
-    [hidden, setId],
+    [starred, setId],
   );
 
   const toggle = useCallback(
@@ -259,9 +256,7 @@ export default function Binder({
   /** "Tenho todas desta pagina": o atalho que torna a varredura viavel. */
   const togglePage = useCallback(
     (page: (SlotItem | null)[]) => {
-      const present = (page.filter(Boolean) as SlotItem[]).filter(
-        (i) => !hidden.has(itemKey(i.card.id, i.variant)),
-      );
+      const present = page.filter(Boolean) as SlotItem[];
       if (present.length === 0) return;
       const ids = present.map((i) => itemKey(i.card.id, i.variant));
       const allOwned = ids.every((k) => owned.has(k));
@@ -272,7 +267,7 @@ export default function Binder({
       });
       void persistOwned(ids, !allOwned);
     },
-    [owned, hidden, persistOwned],
+    [owned, persistOwned],
   );
 
   /**
@@ -382,7 +377,7 @@ export default function Binder({
     // Fora do modo Total a carta pode nao estar a vista (ja tenho / ja falta).
     // Em vez de dizer que ela nao existe, volta para o Total e leva ate o lugar dela.
     if (!hit && view !== "full") {
-      const noCompleto = findCardPage(ordered, n, rows, columns);
+      const noCompleto = findCardPage(posicoes, n, rows, columns);
       if (noCompleto) {
         setView("full");
         hit = noCompleto;
@@ -456,10 +451,10 @@ export default function Binder({
           setId={setId}
           owned={item ? owned.has(chave(item)) : false}
           highlighted={false}
-          hidden={item ? hidden.has(chave(item)) : false}
+          starred={item ? starred.has(chave(item)) : false}
           numberWidth={numberWidth}
           onToggle={() => {}}
-          onToggleHidden={() => {}}
+          onToggleStar={() => {}}
           onOpen={() => {}}
         />
       ))}
@@ -489,9 +484,9 @@ export default function Binder({
               owned={item ? owned.has(chave(item)) : false}
               highlighted={item ? chave(item) === highlight : false}
               numberWidth={numberWidth}
-              hidden={item ? hidden.has(chave(item)) : false}
+              starred={item ? starred.has(chave(item)) : false}
               onToggle={toggle}
-              onToggleHidden={toggleHidden}
+              onToggleStar={toggleStar}
               onOpen={setAberta}
             />
           ))}
@@ -555,28 +550,6 @@ export default function Binder({
       </header>
 
       {/*
-        So aparece quando ha escondidas — controle que nao existe enquanto nao
-        serve para nada. E o unico caminho de volta: escondida some do fichario,
-        entao sem revelar nao daria para desfazer.
-      */}
-      {hidden.size > 0 && (
-        <p className="-mt-2 mb-4 text-sm text-(--color-tinta-fraca)">
-          {hidden.size === 1 ? "1 carta que você não quer" : `${hidden.size} cartas que você não quer`}
-          {" · "}
-          <button
-            type="button"
-            onClick={() => setRevelarEscondidas((v) => !v)}
-            className="font-medium text-(--color-tinta) underline underline-offset-2"
-          >
-            {revelarEscondidas ? "esconder de novo" : "mostrar"}
-          </button>
-          {revelarEscondidas && (
-            <span className="ml-1">— toque três vezes para trazer de volta</span>
-          )}
-        </p>
-      )}
-
-      {/*
         Modos filtrados podem ficar sem nenhuma carta. Mostrar um fichario de
         bolsos vazios ali nao explicaria nada — e o caso de "o que falta" vazio e
         justamente o momento de maior orgulho do app.
@@ -590,6 +563,18 @@ export default function Binder({
               </p>
               <p className="mt-2 text-(--color-tinta-fraca)">
                 Essa coleção está completa.
+              </p>
+            </>
+          ) : view === "star" ? (
+            <>
+              <p className="text-xl font-semibold">
+                <span className="text-(--color-estrela)">★</span> Nenhuma carta com
+                estrela ainda
+              </p>
+              <p className="mt-2 text-(--color-tinta-fraca)">
+                Toque <strong className="font-medium text-(--color-tinta)">três vezes</strong>{" "}
+                numa carta para dizer que você quer muito essa. Elas ficam aqui, e viram
+                uma folha só delas.
               </p>
             </>
           ) : (
@@ -750,6 +735,7 @@ export default function Binder({
             { key: "full", label: "Total" },
             { key: "mine", label: "O que eu tenho" },
             { key: "missing", label: "O que falta" },
+            { key: "star", label: `★ Quero muito${starred.size ? ` (${starred.size})` : ""}` },
           ]}
           value={view}
           onChange={(v) => setView(v as View)}
@@ -780,29 +766,43 @@ export default function Binder({
       </section>
 
       {/* Impressao: acao do adulto, nao da crianca. Fica no fim, e explicada. */}
-      <section className="mt-8 border-t border-(--color-vinco) pt-6 text-center">
+      <section className="mt-8 border-t border-(--color-vinco) pt-6">
         {completa ? (
-          <p className="text-lg font-medium text-(--color-tenho)">
+          <p className="text-center text-lg font-medium text-(--color-tenho)">
             Coleção completa — não falta nenhuma carta.
           </p>
         ) : (
-          <>
-            <a
+          <div className="mx-auto grid max-w-3xl gap-5 sm:grid-cols-2">
+            <BlocoDeImpressao
+              titulo={stats.missing === 1 ? "A carta que falta" : `As ${stats.missing} que faltam`}
               href={`/api/pdf/${setId}`}
-              className="inline-flex min-h-12 items-center gap-2.5 rounded-full bg-(--color-tinta) px-6 text-base font-semibold text-(--color-mesa)"
-            >
-              <IconeBaixar />
-              PDF {stats.missing === 1 ? "da carta que falta" : `das ${stats.missing} faltantes`}
-            </a>
-            <p className="tabular mx-auto mt-3 max-w-md text-sm text-(--color-tinta-fraca)">
-              {sheetsNeeded(missing.length)}{" "}
-              {sheetsNeeded(missing.length) === 1 ? "folha A4" : "folhas A4"}, 9 cartas por
-              folha em tamanho real.
-              <br />
-              Ao imprimir, escolha <strong className="font-semibold">Tamanho real (100%)</strong>{" "}
-              — não use “Ajustar à página”.
-            </p>
-          </>
+              quantidade={missing.length}
+            />
+
+            {/*
+              So existe quando ha estrela faltando. Um bloco vazio dizendo "0
+              cartas" seria uma pergunta sem resposta na tela de uma crianca.
+            */}
+            {estrelasFaltando.length > 0 && (
+              <BlocoDeImpressao
+                titulo={`★ ${
+                  estrelasFaltando.length === 1
+                    ? "A que eu mais quero"
+                    : `As ${estrelasFaltando.length} que eu mais quero`
+                }`}
+                href={`/api/pdf/${setId}?lista=estrelas`}
+                quantidade={estrelasFaltando.length}
+                estrela
+              />
+            )}
+          </div>
+        )}
+
+        {!completa && (
+          <p className="mx-auto mt-5 max-w-md text-center text-sm text-(--color-tinta-fraca)">
+            Ao imprimir, escolha <strong className="font-semibold">Tamanho real (100%)</strong>{" "}
+            — não use “Ajustar à página”.
+          </p>
         )}
       </section>
 
@@ -811,17 +811,17 @@ export default function Binder({
           item={aberta}
           setId={setId}
           owned={owned.has(chave(aberta))}
-          hidden={hidden.has(chave(aberta))}
+          starred={starred.has(chave(aberta))}
           numberWidth={numberWidth}
           onToggle={toggle}
-          onToggleHidden={toggleHidden}
+          onToggleStar={toggleStar}
           onClose={() => setAberta(null)}
         />
       )}
 
       {finding && (
         <FindCard
-          max={Math.max(...ordered.map((i) => cardNumber(i.card)))}
+          max={Math.max(...posicoes.map((i) => cardNumber(i.card)))}
           onGo={goToCard}
           onClose={() => setFinding(false)}
         />
@@ -874,20 +874,6 @@ function IconeLupa() {
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
       <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.6" />
       <path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconeBaixar() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M8 2v8m0 0L4.8 6.8M8 10l3.2-3.2M2.5 13h11"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }

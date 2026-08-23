@@ -1,56 +1,53 @@
-import { getBinder, getOwnedIds, getHiddenIds } from "@/lib/db";
 import { getUserId } from "@/lib/session";
 import { getManifest } from "@/lib/manifests";
-import { sortCards } from "@/lib/cards";
-import { missingCards } from "@/lib/binder";
-import { buildMissingPdf, pdfFilename } from "@/lib/pdf";
-import { expandirVariantes, itemKey, type SlotItem } from "@/lib/types";
+import { itensDaColecao, type Lista } from "@/lib/listas";
+import { buildCardsPdf, pdfFilename, type Escala } from "@/lib/pdf";
 
 /**
- * PDF A4 das cartas faltantes em tamanho real (63 x 88 mm), 9 por folha.
- * Montado em coordenadas absolutas de proposito — imprimir HTML pelo navegador
+ * A folha A4 de uma colecao, nas quatro combinacoes possiveis:
+ *
+ *   ?lista=faltantes|estrelas   o que entra na folha (padrao: faltantes)
+ *   ?escala=real|reduzida       63 x 88 mm, 9 por folha (padrao), ou ~59%, 25 por folha
+ *
+ * Montada em coordenadas absolutas de proposito — imprimir HTML pelo navegador
  * passa por "ajustar a pagina" e a carta sai fora de escala.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ setId: string }> },
 ) {
   const { setId } = await params;
   const manifest = getManifest(setId);
   if (!manifest) return new Response("Coleção não encontrada", { status: 404 });
 
+  const query = new URL(request.url).searchParams;
+  const lista: Lista = query.get("lista") === "estrelas" ? "estrelas" : "faltantes";
+  const escala: Escala = query.get("escala") === "reduzida" ? "reduzida" : "real";
+
   // getUserId e nao requireUserId: baixar o PDF nao e motivo para criar conta.
-  // Sem sessao, nada esta marcado e a folha sai com a colecao inteira — que e
-  // exatamente o que alguem sem nenhuma carta precisa imprimir.
-  const userId = await getUserId();
+  // Sem sessao, nada esta marcado e a folha das faltantes sai com a colecao
+  // inteira — que e exatamente o que alguem sem nenhuma carta precisa imprimir.
+  const itens = await itensDaColecao(await getUserId(), setId, lista);
+  if (!itens) return new Response("Coleção não encontrada", { status: 404 });
 
-  // Mesma ordem escolhida no fichario, para a folha impressa sair na sequencia
-  // em que a crianca vai encaixar as cartas.
-  // Cartas escondidas sao as que ele nao quer ter: nao entram na folha de impressao.
-  const [binder, escondidas, possuidas] = await Promise.all([
-    getBinder(userId, setId),
-    getHiddenIds(userId, setId),
-    getOwnedIds(userId, setId),
-  ]);
-  // Cada posicao faltante vira uma carta na folha: faltando a simples E as
-  // brilhantes, a mesma arte sai uma vez por bolso a preencher.
-  const chave = (i: SlotItem) => itemKey(i.card.id, i.variant);
-  const posicoes = expandirVariantes(
-    sortCards(manifest.cards, binder.sortRule),
-    setId,
-  ).filter((i) => !escondidas.has(chave(i)));
-  const missing = missingCards(posicoes, possuidas, chave);
-
-  const bytes = await buildMissingPdf(missing, setId);
+  const bytes = await buildCardsPdf(itens, {
+    escala,
+    titulo: lista === "estrelas" ? "Cartas que eu mais quero" : "Cartas faltantes",
+  });
   if (!bytes) {
-    // Colecao completa: nao existe folha em branco para gerar.
-    return new Response("Não falta nenhuma carta.", { status: 409 });
+    // Nada a imprimir: nao existe folha em branco para gerar.
+    return new Response(
+      lista === "estrelas"
+        ? "Você já tem todas as cartas que marcou com estrela."
+        : "Não falta nenhuma carta.",
+      { status: 409 },
+    );
   }
 
   return new Response(bytes as BodyInit, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${pdfFilename(manifest.setName)}"`,
+      "Content-Disposition": `attachment; filename="${pdfFilename(manifest.setName, { lista, escala })}"`,
       "Content-Length": String(bytes.byteLength),
     },
   });

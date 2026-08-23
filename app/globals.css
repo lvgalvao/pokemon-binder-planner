@@ -15,6 +15,13 @@
   --color-vinco: #d9d2c6;
   --color-tenho: #1f9d55;
   --color-tenho-fraco: #e6f4ec;
+  /*
+    O segundo — e ultimo — acento. Verde responde "ja tenho"; dourado responde
+    "quero muito". Sao as duas unicas perguntas que o app faz sobre uma carta, e
+    cada uma precisa de uma resposta que se reconheca de longe, sem ler.
+  */
+  --color-estrela: #d99400;
+  --color-estrela-fraco: #fdf2da;
 
   --radius-carta: 4.5%;
 
@@ -38,6 +45,8 @@
     --color-vinco: #35333b;
     --color-tenho: #3ecf7e;
     --color-tenho-fraco: #1b3327;
+    --color-estrela: #e8b13c;
+    --color-estrela-fraco: #35290f;
   }
 }
 
@@ -152,16 +161,15 @@ body {
     inset 0 0 0 1.5px rgb(140 170 220 / 0.55);
 }
 
-/* Escondida revelada: presente o bastante para achar e desfazer, apagada o
-   bastante para nao ser confundida com uma carta que ele quer. */
-.carta-escondida {
-  filter: grayscale(1) contrast(0.8);
-  opacity: 0.22;
-}
-
-.bolso-escondido {
-  outline: 2px dashed color-mix(in srgb, var(--color-tinta-tenue) 70%, transparent);
-  outline-offset: -3px;
+/* "Quero muito essa": um anel dourado no bolso. Some com a moldura, nao com a
+   arte — a carta continua inteira, porque a estrela e sobre desejar, nao sobre
+   ter menos. Convive com o anel azulado do bolso brilhante: o dourado vem por
+   fora, entao os dois se leem juntos. */
+.bolso-estrela {
+  /* `outline`, e nao `box-shadow`: o bolso brilhante ja usa o box-shadow para o
+     anel azulado, e a carta pode ser as duas coisas ao mesmo tempo. */
+  outline: 2.5px solid var(--color-estrela);
+  outline-offset: 1px;
 }
 
 .bolso-botao:active .carta {

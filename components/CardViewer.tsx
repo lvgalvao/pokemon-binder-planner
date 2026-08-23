@@ -17,20 +17,20 @@ export default function CardViewer({
   item,
   setId,
   owned,
-  hidden,
+  starred,
   numberWidth,
   onToggle,
-  onToggleHidden,
+  onToggleStar,
   onClose,
 }: {
   item: SlotItem;
   /** Preciso para dizer QUAL brilhante, onde a colecao tem dois reverses. */
   setId: string;
   owned: boolean;
-  hidden: boolean;
+  starred: boolean;
   numberWidth: number;
   onToggle: (item: SlotItem) => void;
-  onToggleHidden: (item: SlotItem) => void;
+  onToggleStar: (item: SlotItem) => void;
   onClose: () => void;
 }) {
   const { card, variant } = item;
@@ -97,12 +97,11 @@ export default function CardViewer({
 
         <button
           type="button"
-          disabled={hidden}
           onClick={() => {
             onToggle(item);
             onClose();
           }}
-          className={`min-h-14 w-full min-w-64 rounded-2xl px-6 text-base font-semibold transition-colors disabled:opacity-35 ${
+          className={`min-h-14 w-full min-w-64 rounded-2xl px-6 text-base font-semibold transition-colors ${
             owned
               ? "bg-white/12 text-white ring-1 ring-white/25"
               : "bg-(--color-tenho) text-white"
@@ -111,16 +110,24 @@ export default function CardViewer({
           {owned ? "Não tenho mais essa" : "Tenho essa!"}
         </button>
 
-        {/* Caminho de um toque so para o que o toque triplo faz no fichario. */}
+        {/*
+          Caminho de um toque so para o que o toque triplo faz no fichario.
+          Fica aberto mesmo para carta que ele ja tem: a estrela responde "quero
+          muito", nao "falta". Nao fecha a carta ao marcar — a estrela e uma
+          declaracao sobre a arte que ele esta justamente olhando, e ver o botao
+          virar dourado ali e a confirmacao.
+        */}
         <button
           type="button"
-          onClick={() => {
-            onToggleHidden(item);
-            onClose();
-          }}
-          className="min-h-11 px-5 text-sm text-white/55 underline underline-offset-4"
+          onClick={() => onToggleStar(item)}
+          aria-pressed={starred}
+          className={`min-h-12 w-full min-w-64 rounded-2xl px-6 text-base font-semibold transition-colors ${
+            starred
+              ? "bg-(--color-estrela) text-white"
+              : "bg-white/12 text-white ring-1 ring-white/25"
+          }`}
         >
-          {hidden ? "Quero essa carta de volta" : "Não quero essa carta"}
+          {starred ? "★ Quero muito essa!" : "☆ Quero muito essa"}
         </button>
 
         <button

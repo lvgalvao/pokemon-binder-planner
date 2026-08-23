@@ -32,13 +32,13 @@ type Props = {
   setId: string;
   owned: boolean;
   highlighted: boolean;
-  /** "Nao tenho e nao quero": some da colecao e do PDF. */
-  hidden: boolean;
+  /** "Quero MUITO essa": segue no fichario e segue contando como faltante. */
+  starred: boolean;
   numberWidth: number;
   /** Toque duplo: marca ou desmarca. */
   onToggle: (item: SlotItem) => void;
-  /** Toque triplo: esconde ou revela. */
-  onToggleHidden: (item: SlotItem) => void;
+  /** Toque triplo: poe ou tira a estrela. */
+  onToggleStar: (item: SlotItem) => void;
   /** Toque simples: abre a carta grande. */
   onOpen: (item: SlotItem) => void;
 };
@@ -48,10 +48,10 @@ export default function CardSlot({
   setId,
   owned,
   highlighted,
-  hidden,
+  starred,
   numberWidth,
   onToggle,
-  onToggleHidden,
+  onToggleStar,
   onOpen,
 }: Props) {
   const [failed, setFailed] = useState(false);
@@ -72,13 +72,14 @@ export default function CardSlot({
   const label = String(cardNumber(card)).padStart(numberWidth, "0");
 
   /**
-   * Um clique abre, dois marcam, tres escondem. O `detail` do evento ja traz a
-   * contagem da sequencia, entao os tres casos saem de um unico handler — sem
+   * Um clique abre, dois marcam, tres poem estrela. O `detail` do evento ja traz
+   * a contagem da sequencia, entao os tres casos saem de um unico handler — sem
    * precisar somar cliques na mao.
    *
-   * Marcar continua agindo no ato (sem espera): se vier um terceiro clique, o
-   * `toggleHidden` apaga a posse de qualquer jeito, entao o efeito colateral do
-   * segundo clique nao sobrevive.
+   * Marcar continua agindo no ato (sem espera). O terceiro clique nao desfaz o
+   * segundo de proposito: quem toca tres vezes numa carta que acabou de marcar
+   * fica com ela marcada E com estrela, que sao respostas a perguntas
+   * diferentes ("ja tenho?" e "quero muito?").
    */
   const aoClicar = (e: React.MouseEvent) => {
     if (timer.current) {
@@ -96,7 +97,7 @@ export default function CardSlot({
     } else if (cliques === 2) {
       onToggle(item);
     } else if (cliques === 3) {
-      onToggleHidden(item);
+      onToggleStar(item);
     }
   };
 
@@ -106,11 +107,11 @@ export default function CardSlot({
       onClick={aoClicar}
       aria-pressed={owned}
       aria-label={`${label} ${card.name}${porExtenso ? " " + porExtenso : ""} — ${
-        hidden ? "escondida, você não quer essa" : owned ? "você tem" : "está faltando"
-      }`}
+        owned ? "você tem" : "está faltando"
+      }${starred ? ", você quer muito essa" : ""}`}
       // `manipulation` evita que o toque duplo vire zoom no celular.
       className={`bolso bolso-botao min-h-11 cursor-pointer touch-manipulation select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-tenho) ${
-        hidden ? "bolso-escondido" : ""
+        starred ? "bolso-estrela" : ""
       } ${holo ? "bolso-holo" : ""} ${highlighted ? "pulsando" : ""}`}
     >
       {failed ? (
@@ -138,30 +139,33 @@ export default function CardSlot({
           loading={LOADING}
           draggable={false}
           onError={() => setFailed(true)}
-          className={`carta ${
-            hidden ? "carta-escondida" : owned ? "carta-tenho" : "carta-falta"
-          }`}
+          className={`carta ${owned ? "carta-tenho" : "carta-falta"}`}
         />
       )}
 
       {/* Selo discreto de falta. Nos modos filtrados ele continua util: e por ele
           que a crianca identifica a carta na lista de caca. */}
-      {!owned && !hidden && (
+      {!owned && (
         <span className="tabular pointer-events-none absolute bottom-1 left-1 z-10 rounded-md bg-black/62 px-1.5 py-0.5 text-[0.68rem] leading-none font-semibold text-white">
           {label}
         </span>
       )}
 
       {/* A imagem e a mesma em todas as versoes; o selo e o que diz qual bolso e qual. */}
-      {holo && !hidden && (
+      {holo && (
         <span className="pointer-events-none absolute top-1 right-1 z-10 rounded-md bg-white/85 px-1.5 py-0.5 text-[0.62rem] leading-none font-bold tracking-wide text-slate-800 shadow-sm">
           {selo}
         </span>
       )}
 
-      {hidden && (
-        <span className="tabular pointer-events-none absolute bottom-1 left-1 z-10 rounded-md bg-(--color-tinta)/80 px-1.5 py-0.5 text-[0.68rem] leading-none font-semibold text-(--color-mesa)">
-          {label} · não quero
+      {/* A estrela vai no canto de cima a ESQUERDA: o de cima a direita e do selo
+          da versao brilhante, e as duas marcas coexistem no mesmo bolso. */}
+      {starred && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-1 left-1 z-10 grid h-5 w-5 place-items-center rounded-full bg-(--color-estrela) text-[0.7rem] leading-none text-white shadow-sm"
+        >
+          ★
         </span>
       )}
     </button>

@@ -50,7 +50,7 @@ export type Database = {
         }
         Relationships: []
       }
-      hidden_card: {
+      owned_card: {
         Row: {
           card_id: string
           set_id: string
@@ -68,7 +68,7 @@ export type Database = {
         }
         Relationships: []
       }
-      owned_card: {
+      starred_card: {
         Row: {
           card_id: string
           set_id: string

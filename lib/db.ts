@@ -87,7 +87,7 @@ export async function updateBinder(
 const TETO_DE_LINHAS = 5000;
 
 async function idsDaTabela(
-  tabela: "owned_card" | "hidden_card",
+  tabela: "owned_card" | "starred_card",
   userId: string | null,
   setId: string,
 ): Promise<Set<string>> {
@@ -115,8 +115,37 @@ export function getOwnedIds(userId: string | null, setId: string): Promise<Set<s
   return idsDaTabela("owned_card", userId, setId);
 }
 
-export function getHiddenIds(userId: string | null, setId: string): Promise<Set<string>> {
-  return idsDaTabela("hidden_card", userId, setId);
+/** As cartas que ele mais quer, nesta colecao. */
+export function getStarredIds(userId: string | null, setId: string): Promise<Set<string>> {
+  return idsDaTabela("starred_card", userId, setId);
+}
+
+/**
+ * Todas as estrelas, de todas as colecoes, para a lista de desejos da tela
+ * inicial. Uma consulta so: a lista e curta por natureza — sao as cartas que a
+ * crianca escolheu a dedo, nao uma colecao inteira — e ir set a set custaria um
+ * round-trip por colecao para juntar tudo numa tela.
+ */
+export async function starredBySet(
+  userId: string | null,
+): Promise<Map<string, string[]>> {
+  if (!userId) return new Map();
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("starred_card")
+    .select("set_id, card_id")
+    .eq("user_id", userId)
+    .limit(TETO_DE_LINHAS);
+
+  if (error) throw new Error(`starredBySet: ${error.message}`);
+
+  const out = new Map<string, string[]>();
+  for (const { set_id, card_id } of data) {
+    const lista = out.get(set_id);
+    lista ? lista.push(card_id) : out.set(set_id, [card_id]);
+  }
+  return out;
 }
 
 /** Marca ou desmarca varias cartas de uma vez — usado pelo "tenho todas desta pagina". */
@@ -145,36 +174,35 @@ export async function setOwned(
 }
 
 /**
- * Esconde ou revela cartas. Esconder tambem apaga a posse: "nao tenho e nao
- * quero" — assim, se a carta voltar a aparecer um dia, nao volta marcada por
- * engano.
+ * Poe ou tira a estrela — "quero muito essa".
+ *
+ * Ao contrario do esconder que existia aqui antes, estrela NAO mexe na posse: as
+ * duas marcas respondem perguntas diferentes ("ja tenho?" e "quero muito?") e
+ * uma estrela numa carta que ele acabou de conseguir e a melhor noticia do app,
+ * nao uma contradicao a resolver.
  */
-export async function setHidden(
+export async function setStarred(
   userId: string,
   setId: string,
   cardIds: readonly string[],
-  hidden: boolean,
+  starred: boolean,
 ): Promise<void> {
   if (cardIds.length === 0) return;
   const supabase = await createClient();
 
-  if (hidden) {
-    const { error } = await supabase.from("hidden_card").upsert(
-      cardIds.map((card_id) => ({ user_id: userId, set_id: setId, card_id })),
-      { onConflict: "user_id,set_id,card_id", ignoreDuplicates: true },
-    );
-    if (error) throw new Error(`setHidden(${setId}): ${error.message}`);
-    await setOwned(userId, setId, cardIds, false);
-    return;
-  }
+  const { error } = starred
+    ? await supabase.from("starred_card").upsert(
+        cardIds.map((card_id) => ({ user_id: userId, set_id: setId, card_id })),
+        { onConflict: "user_id,set_id,card_id", ignoreDuplicates: true },
+      )
+    : await supabase
+        .from("starred_card")
+        .delete()
+        .eq("user_id", userId)
+        .eq("set_id", setId)
+        .in("card_id", cardIds as string[]);
 
-  const { error } = await supabase
-    .from("hidden_card")
-    .delete()
-    .eq("user_id", userId)
-    .eq("set_id", setId)
-    .in("card_id", cardIds as string[]);
-  if (error) throw new Error(`setHidden(${setId}): ${error.message}`);
+  if (error) throw new Error(`setStarred(${setId}): ${error.message}`);
 }
 
 /** Quantas cartas o usuario tem em cada colecao — para a tela inicial. */

@@ -3,9 +3,10 @@ import { inflateSync } from "node:zlib";
 import sharp from "sharp";
 import { PDFDocument, PDFArray, PDFRawStream } from "pdf-lib";
 import {
-  buildMissingPdf as build,
+  buildCardsPdf as build,
   pdfFilename,
   sheetsNeeded,
+  FOLHA,
   A4,
   CARD,
   MM,
@@ -34,8 +35,19 @@ beforeAll(async () => {
   );
 });
 
-const buildMissingPdf = (itens: readonly SlotItem[], setId = "sv7") =>
-  build(itens, setId, async () => jpegDeTeste);
+/**
+ * O `setId` acompanha cada carta na folha — ela pode misturar colecoes. Nos
+ * testes de geometria ele e sempre o mesmo, entao o helper o cola aqui.
+ */
+const buildMissingPdf = (
+  itens: readonly SlotItem[],
+  setId = "sv7",
+  escala: "real" | "reduzida" = "real",
+) =>
+  build(
+    itens.map((i) => ({ ...i, setId })),
+    { escala, buscarArte: async () => jpegDeTeste },
+  );
 
 /** Posicoes na versao simples — o caso comum dos testes de geometria. */
 const itens = cards.map((card) => ({ card, variant: "normal" as const }));
@@ -117,6 +129,59 @@ describe("sheetsNeeded", () => {
     expect(sheetsNeeded(10)).toBe(2);
   });
   it("44 faltantes = 5 folhas", () => expect(sheetsNeeded(44)).toBe(5));
+
+  it("na folha reduzida a mesma lista cabe em bem menos papel", () => {
+    expect(sheetsNeeded(25, "reduzida")).toBe(1);
+    expect(sheetsNeeded(26, "reduzida")).toBe(2);
+    expect(sheetsNeeded(44, "reduzida")).toBe(2);
+  });
+});
+
+/**
+ * A folha reduzida existe para caber na mao, nao no bolso do fichario. O que ela
+ * NAO pode fazer e distorcer a carta: se a proporcao escorregar, a arte deforma.
+ */
+describe("folha reduzida", () => {
+  const folha = FOLHA.reduzida;
+
+  it("poe 5 cartas por linha e 25 na folha", () => {
+    expect(folha.grid.columns).toBe(5);
+    expect(folha.grid.rows).toBe(5);
+    expect(folha.perPage).toBe(25);
+  });
+
+  it("mantem a proporcao 63:88 da carta", () => {
+    expect(folha.card.width / folha.card.height).toBeCloseTo(63 / 88, 6);
+    expect(folha.fator).toBeCloseTo(folha.card.width / CARD.width, 6);
+  });
+
+  it("desenha as 25 cartas do mesmo tamanho, sem vazar da folha", async () => {
+    const found = await placements(
+      (await buildMissingPdf(itens.slice(0, 25), "sv7", "reduzida"))!,
+    );
+    expect(found).toHaveLength(25);
+    for (const p of found) {
+      expect(p.w).toBeCloseTo(folha.card.width, 2);
+      expect(p.h).toBeCloseTo(folha.card.height, 2);
+      expect(p.w / p.h).toBeCloseTo(63 / 88, 4);
+      // A margem minima e o que garante que a impressora domestica alcance.
+      expect(p.x / MM).toBeGreaterThanOrEqual(7.99);
+      expect((A4.width - p.x - p.w) / MM).toBeGreaterThanOrEqual(7.99);
+      expect(p.y / MM).toBeGreaterThanOrEqual(7.99);
+      expect((A4.height - p.y - p.h) / MM).toBeGreaterThanOrEqual(7.99);
+    }
+    expect(new Set(found.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`)).size).toBe(25);
+  });
+
+  it("quebra a folha na 26a carta", async () => {
+    const bytes = (await buildMissingPdf(itens.slice(0, 26), "sv7", "reduzida"))!;
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(2);
+  });
+
+  it("nao mexe na folha real: la a carta continua com 63 x 88 mm", async () => {
+    const found = await placements((await buildMissingPdf(itens.slice(0, 9)))!);
+    for (const p of found) expect(p.w / MM).toBeCloseTo(63, 3);
+  });
 });
 
 describe("buildMissingPdf", () => {
@@ -187,14 +252,27 @@ describe("buildMissingPdf", () => {
 });
 
 describe("pdfFilename", () => {
+  const date = new Date("2026-08-08T12:00:00Z");
+
   it("gera um nome reconhecivel meses depois", () => {
-    expect(pdfFilename("Stellar Crown", new Date("2026-08-08T12:00:00Z"))).toBe(
+    expect(pdfFilename("Stellar Crown", { date })).toBe(
       "faltantes-stellar-crown-2026-08-08.pdf",
     );
   });
   it("remove acentos e pontuacao", () => {
-    expect(pdfFilename("Pokémon GO", new Date("2026-08-08T12:00:00Z"))).toBe(
-      "faltantes-pokemon-go-2026-08-08.pdf",
+    expect(pdfFilename("Pokémon GO", { date })).toBe("faltantes-pokemon-go-2026-08-08.pdf");
+  });
+  it("diz na cara qual das quatro folhas e", () => {
+    expect(pdfFilename("Stellar Crown", { date, escala: "reduzida" })).toBe(
+      "faltantes-stellar-crown-menores-2026-08-08.pdf",
+    );
+    expect(pdfFilename("Stellar Crown", { date, lista: "estrelas" })).toBe(
+      "quero-muito-stellar-crown-2026-08-08.pdf",
+    );
+  });
+  it("sem colecao — a folha que mistura varias — nao inventa um nome de set", () => {
+    expect(pdfFilename("", { date, lista: "estrelas", escala: "reduzida" })).toBe(
+      "quero-muito-menores-2026-08-08.pdf",
     );
   });
 });

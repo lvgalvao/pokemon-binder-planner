@@ -1,4 +1,4 @@
-import { setOwned, setHidden } from "@/lib/db";
+import { setOwned, setStarred } from "@/lib/db";
 import { getManifest } from "@/lib/manifests";
 import { requireUserId } from "@/lib/session";
 import { parseItemKey, variantesDe } from "@/lib/types";
@@ -6,10 +6,12 @@ import { parseItemKey, variantesDe } from "@/lib/types";
 /**
  * As duas marcacoes que a crianca faz num bolso, numa rota so.
  *
- *   tenho     toque duplo. Aceita lista para o "tenho todas desta pagina" ir num
- *             round-trip so.
- *   escondida toque triplo. "Nao tenho e NAO QUERO": some do fichario, nao conta
- *             como faltante e nao entra no PDF. Esconder tambem apaga a posse.
+ *   tenho    toque duplo. Aceita lista para o "tenho todas desta pagina" ir num
+ *            round-trip so.
+ *   estrela  toque triplo. "QUERO MUITO essa": a carta continua no fichario e
+ *            continua contando como faltante — a estrela nao esconde nada, ela
+ *            destaca. Ganha folha propria no PDF, sozinha ou junto com as
+ *            estrelas das outras colecoes.
  *
  * Eram duas rotas, e a diferenca entre os arquivos era o nome do campo e a funcao
  * chamada no fim — mesma validacao, mesmo formato, mesmos erros. Duas copias de
@@ -18,7 +20,7 @@ import { parseItemKey, variantesDe } from "@/lib/types";
  * A interface ja mudou de cor antes desta resposta chegar; aqui e so a gravacao.
  */
 
-const MARCAS = ["tenho", "escondida"] as const;
+const MARCAS = ["tenho", "estrela"] as const;
 type Marca = (typeof MARCAS)[number];
 
 export async function POST(request: Request) {
@@ -63,7 +65,7 @@ export async function POST(request: Request) {
   // So aqui a conta nasce, e so depois da validacao: um pedido com carta
   // inexistente e recusado sem ter criado usuario nenhum.
   const userId = await requireUserId();
-  const gravar = marca === "tenho" ? setOwned : setHidden;
+  const gravar = marca === "tenho" ? setOwned : setStarred;
   await gravar(userId, setId, accepted, valor);
 
   return Response.json({ ok: true, count: accepted.length });

@@ -122,6 +122,17 @@ passa por "ajustar à página" e destrói o tamanho físico. Carta = 63 × 88 mm
 as imagens de 733×1024 px dão 295 DPI nesse tamanho, com proporção 0,7158 contra 63/88 = 0,7159.
 `tests/pdf.test.ts` lê o content stream do PDF gerado e afere a geometria em milímetros.
 
+**Duas folhas, quatro downloads.** `FOLHA.real` é a de sempre — 63 × 88 mm, 3×3, para recortar e
+encaixar. `FOLHA.reduzida` é a mesma carta a ~59%: 37,2 × 52,0 mm, 5×5, 25 por folha, para levar
+a lista na mão sem gastar seis folhas. **O fator não é escolhido, é derivado**: é o que faz 5
+colunas caberem na largura do A4 com a margem mínima de 8 mm que a impressora doméstica alcança
+(`fatorPara()` em `sheet.ts`), e as linhas são as que couberem com esse mesmo fator. Escolher um
+número redondo como 60% empurraria a margem para 6,5 mm, dentro da faixa que muita impressora
+não imprime. A proporção 63:88 nunca muda — o teste exige isso, porque uma carta esticada é pior
+que uma carta pequena. Cada folha existe para as faltantes e para as estrelas: `?lista=estrelas`
+e `?escala=reduzida` em `/api/pdf/[setId]`, mais `/api/pdf/estrelas` para todas as coleções
+juntas (rota estática antes da dinâmica, senão "estrelas" seria lido como um setId).
+
 **As cartas usam `next/image` com `loading="eager"`.** Servir os JPEGs crus custava 6 MB por par
 de páginas e ~13 s até a última pintar, mesmo em cache; com `sizes`, cai para 535 KB e 186 ms.
 E `eager` porque só o par de páginas aberto é renderizado — toda carta no DOM já está na tela,
@@ -163,7 +174,8 @@ iça qualquer `@theme` para o topo, e a paleta escura passa a valer sempre.
 - **As promos são uma coleção, não um apêndice das outras.** Espalhá-las dentro de cada set
   quebraria o fichário físico, que segue a numeração impressa — e a promo não tem número dentro
   do set. Ela aparece como `mep` ("Promos Mega Evolution"), fechando a família na tela inicial.
-  A coleção nasce **incompleta na origem**: das 89 promos catalogadas, só 40 têm arte publicada.
+  A coleção nasce **incompleta na origem**: das 89 promos catalogadas, só 40 têm arte publicada
+  (conferido em 2026-08-23 — as outras 49 seguem dando 404 no CDN da tcgdex).
   As outras não entram no manifest (que reflete o disco), então o fichário não ganha bolso
   permanentemente vazio e "O que falta" ainda pode zerar. Repetir `download-cards.mjs` mais
   tarde só acrescenta. A capa não é pacote — promo não vem em pacote — e sim a carta mais
@@ -171,20 +183,32 @@ iça qualquer `@theme` para o topo, e a paleta escura passa a valer sempre.
 - **Ordem fixa por raridade**, sem opção: comuns primeiro, lendárias por último, número crescente
   dentro de cada raridade. É como o fichário é montado de verdade. `sortCards` ainda aceita
   `"number"` e é testada nos dois modos, mas a interface não oferece a escolha.
-- **Três olhares sobre a coleção**, no interruptor do rodapé: `Total` (tudo, faltantes em cinza —
-  é onde se faz a varredura e onde vive o "tenho todas"), `O que eu tenho` e `O que falta` (ambos
-  compactados, sem buracos). Os dois filtrados têm estado vazio próprio; "O que falta" vazio é o
-  momento de comemoração do app.
-- **Um toque abre a carta grande; dois marcam; três escondem.** Ver a arte é a parte divertida e
-  ganha o gesto fácil; marcar é deliberado. Escondida = "não tenho e não quero": some do fichário,
-  não conta como faltante e não entra no PDF. O visualizador traz os dois botões equivalentes,
+- **Quatro olhares sobre a coleção**, no interruptor do rodapé: `Total` (tudo, faltantes em cinza —
+  é onde se faz a varredura e onde vive o "tenho todas"), `O que eu tenho`, `O que falta` (ambos
+  compactados, sem buracos) e `★ Quero muito`. Os filtrados têm estado vazio próprio; "O que
+  falta" vazio é o momento de comemoração do app.
+- **Um toque abre a carta grande; dois marcam; três põem estrela.** Ver a arte é a parte divertida
+  e ganha o gesto fácil; marcar é deliberado. O visualizador traz os dois botões equivalentes,
   para quem não acerta os gestos múltiplos.
+- **A estrela substituiu o esconder, e inverte o sinal.** Era "não tenho e NÃO QUERO": a carta
+  sumia do fichário, da conta das faltantes e do PDF. Agora é "QUERO MUITO": a carta continua
+  no lugar, continua contando como faltante, e ganha folha própria. A tabela é a mesma — o
+  `hidden_card` virou `starred_card` num rename, porque tinha zero linhas em produção: o esconder
+  nunca foi usado por ninguém, o que já dizia que a marca útil era a outra. Estrela **não mexe na
+  posse** (o esconder apagava): "já tenho" e "quero muito" são perguntas diferentes, e uma
+  estrela conquistada é a melhor notícia do app, não uma contradição a resolver.
+- **A lista de desejos vive na tela inicial**, acima das coleções, e só existe quando há estrela.
+  É onde as estrelas de coleções diferentes ficam lado a lado — no fichário cada coleção é um
+  mundo fechado, a vontade da criança não é. As já conquistadas continuam lá, com o visto verde;
+  a folha impressa é só das que faltam, porque o recorte de uma carta que ele já tem não serve
+  para nada.
 - **Setas do teclado viram a página** (Home/End vão às pontas), e há setas na borda das páginas
   além da barra de baixo.
 - **Marcação página a página**, espelhando o fichário físico aberto na mesa, com "tenho todas"
   por página. Sem isso, um set mediano exige julgar 188 cartas uma a uma.
-- **As cartas são o colorido; a interface é silenciosa.** Neutros quentes e um único acento,
-  reservado ao estado "tenho".
+- **As cartas são o colorido; a interface é silenciosa.** Neutros quentes e dois acentos, um por
+  pergunta: verde (`--color-tenho`) responde "já tenho", dourado (`--color-estrela`) responde
+  "quero muito". Não há um terceiro.
 - **Sem drag-and-drop** (as posições são derivadas). Reintroduzir é aditivo: uma tabela
   `slot_overrides` aplicada por cima de `generateSlots`, não uma reescrita.
 - **Número de páginas é calculado**, nunca perguntado — o que elimina junto o caso "a coleção

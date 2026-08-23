@@ -2,8 +2,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { listSets } from "@/lib/manifests";
 import { ownedCountBySet } from "@/lib/db";
+import { estrelasDoUsuario } from "@/lib/listas";
 import { getUserId } from "@/lib/session";
 import { coverUrl } from "@/lib/assets";
+import ListaDeDesejos from "@/components/ListaDeDesejos";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,11 @@ export const dynamic = "force-dynamic";
  */
 export default async function Home() {
   const sets = listSets();
-  const owned = await ownedCountBySet(await getUserId());
+  const userId = await getUserId();
+  const [owned, estrelas] = await Promise.all([
+    ownedCountBySet(userId),
+    estrelasDoUsuario(userId),
+  ]);
 
   return (
     <main className="mx-auto max-w-6xl px-5 pb-16 pt-10 sm:px-8">
@@ -28,6 +34,11 @@ export default async function Home() {
       <p className="mt-2 text-lg text-(--color-tinta-fraca)">
         Escolha uma coleção para começar.
       </p>
+
+      {/* A lista de desejos vem antes das colecoes quando existe: e a resposta a
+          pergunta mais quente ("cade as minhas?"), e some por completo quando
+          nao ha nenhuma estrela. */}
+      <ListaDeDesejos estrelas={estrelas} />
 
       <ul className="mt-9 grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 lg:grid-cols-4">
         {sets.map((set, i) => {

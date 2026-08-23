@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { getManifest } from "@/lib/manifests";
-import { getBinder, getOwnedIds, getHiddenIds } from "@/lib/db";
+import { getBinder, getOwnedIds, getStarredIds } from "@/lib/db";
 import { getUserId } from "@/lib/session";
 import Binder from "@/components/Binder";
 
@@ -24,10 +24,10 @@ export default async function BinderPage({
   // Tres consultas independentes: em paralelo elas custam um round-trip, nao
   // tres. Sem sessao, todas devolvem vazio sem tocar o banco.
   const userId = await getUserId();
-  const [binder, owned, hidden] = await Promise.all([
+  const [binder, owned, starred] = await Promise.all([
     getBinder(userId, setId),
     getOwnedIds(userId, setId),
-    getHiddenIds(userId, setId),
+    getStarredIds(userId, setId),
   ]);
 
   return (
@@ -36,7 +36,7 @@ export default async function BinderPage({
       setName={manifest.setName}
       cards={manifest.cards}
       initialOwned={[...owned]}
-      initialHidden={[...hidden]}
+      initialStarred={[...starred]}
       initialRows={binder.rows}
       initialColumns={binder.columns}
       initialSortRule={binder.sortRule}
