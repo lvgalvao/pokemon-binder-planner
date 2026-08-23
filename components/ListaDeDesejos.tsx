@@ -94,12 +94,19 @@ export default function ListaDeDesejos({ estrelas }: { estrelas: Estrela[] }) {
 
       {faltando.length > 0 ? (
         <div className="mt-5 sm:mx-auto sm:max-w-sm">
+          {/*
+            Aqui a folha nao e "as que faltam" de colecao nenhuma: e a lista de
+            desejos inteira, de todas juntas. O titulo repete o nome da secao de
+            proposito — e o mesmo nome que aparece dentro de cada fichario, para
+            a crianca reconhecer que e a mesma lista.
+          */}
           <BlocoDeImpressao
-            titulo={
-              faltando.length === 1
-                ? "A que ainda falta"
-                : `As ${faltando.length} que ainda faltam`
-            }
+            titulo="★ As que eu mais quero"
+            subtitulo={`${faltando.length} ${
+              faltando.length === 1 ? "carta" : "cartas"
+            } com estrela que ainda faltam, de ${
+              new Set(faltando.map((e) => e.setId)).size
+            } ${new Set(faltando.map((e) => e.setId)).size === 1 ? "coleção" : "coleções"}`}
             href="/api/pdf/estrelas"
             quantidade={faltando.length}
             estrela

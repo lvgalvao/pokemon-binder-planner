@@ -771,44 +771,53 @@ export default function Binder({
         </button>
       </section>
 
-      {/* Impressao: acao do adulto, nao da crianca. Fica no fim, e explicada. */}
+      {/*
+        Impressao: acao do adulto, nao da crianca. Fica no fim, e explicada.
+
+        Duas secoes, quatro folhas, sempre as mesmas quatro. A lista de estrelas
+        tambem e feita de cartas que faltam, entao chamar as duas de "as que
+        faltam" apagava a diferenca — cada secao agora diz o nome dela e o que
+        entra nela.
+      */}
       <section className="mt-8 border-t border-(--color-vinco) pt-6">
         {completa ? (
           <p className="text-center text-lg font-medium text-(--color-tenho)">
             Coleção completa — não falta nenhuma carta.
           </p>
         ) : (
-          <div className="mx-auto grid max-w-3xl gap-5 sm:grid-cols-2">
-            <BlocoDeImpressao
-              titulo={stats.missing === 1 ? "A carta que falta" : `As ${stats.missing} que faltam`}
-              href={`/api/pdf/${setId}`}
-              quantidade={missing.length}
-            />
-
-            {/*
-              So existe quando ha estrela faltando. Um bloco vazio dizendo "0
-              cartas" seria uma pergunta sem resposta na tela de uma crianca.
-            */}
-            {estrelasFaltando.length > 0 && (
+          <>
+            <div className="mx-auto grid max-w-3xl gap-5 sm:grid-cols-2">
               <BlocoDeImpressao
-                titulo={`★ ${
-                  estrelasFaltando.length === 1
-                    ? "A que eu mais quero"
-                    : `As ${estrelasFaltando.length} que eu mais quero`
-                }`}
+                titulo="As que faltam"
+                subtitulo={`${stats.missing} ${
+                  stats.missing === 1 ? "carta que falta" : "cartas que faltam"
+                } nesta coleção`}
+                href={`/api/pdf/${setId}`}
+                quantidade={missing.length}
+              />
+
+              {/*
+                Fica na tela mesmo sem nenhuma estrela, apagada: as quatro folhas
+                sao sempre as mesmas quatro, e a frase do vazio e onde a crianca
+                descobre o gesto que enche esta.
+              */}
+              <BlocoDeImpressao
+                titulo="★ As que eu mais quero"
+                subtitulo={`${estrelasFaltando.length} ${
+                  estrelasFaltando.length === 1 ? "carta marcada" : "cartas marcadas"
+                } com estrela, que ainda faltam`}
                 href={`/api/pdf/${setId}?lista=estrelas`}
                 quantidade={estrelasFaltando.length}
                 estrela
+                vazio="Toque três vezes numa carta para marcar ★"
               />
-            )}
-          </div>
-        )}
+            </div>
 
-        {!completa && (
-          <p className="mx-auto mt-5 max-w-md text-center text-sm text-(--color-tinta-fraca)">
-            Ao imprimir, escolha <strong className="font-semibold">Tamanho real (100%)</strong>{" "}
-            — não use “Ajustar à página”.
-          </p>
+            <p className="mx-auto mt-5 max-w-md text-center text-sm text-(--color-tinta-fraca)">
+              Ao imprimir, escolha <strong className="font-semibold">Tamanho real (100%)</strong>{" "}
+              — não use “Ajustar à página”.
+            </p>
+          </>
         )}
       </section>
 
