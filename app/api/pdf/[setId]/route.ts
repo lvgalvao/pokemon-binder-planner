@@ -47,8 +47,15 @@ export async function GET(
   return new Response(bytes as BodyInit, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${pdfFilename(manifest.setName, { lista, escala })}"`,
+      // `inline`: a folha abre no visualizador antes de virar arquivo. Conferir
+      // ANTES de salvar importa porque o que entra nela e derivado do que esta
+      // marcado — e um PDF errado so se descobre depois de imprimir.
+      "Content-Disposition": `inline; filename="${pdfFilename(manifest.setName, { lista, escala })}"`,
       "Content-Length": String(bytes.byteLength),
+      // A URL e sempre a mesma e o conteudo muda a cada marcacao. Sem isto o
+      // navegador reaproveita a folha antiga por heuristica de frescor, e o PDF
+      // passa a discordar da tela — foi exatamente o que apareceu em uso.
+      "Cache-Control": "no-store, max-age=0",
     },
   });
 }

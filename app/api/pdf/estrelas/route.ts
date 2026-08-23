@@ -29,8 +29,10 @@ export async function GET(request: Request) {
     headers: {
       "Content-Type": "application/pdf",
       // Sem nome de colecao: a folha mistura varias, e dizer uma so seria mentira.
-      "Content-Disposition": `attachment; filename="${pdfFilename("", { lista: "estrelas", escala })}"`,
+      // `inline` para poder conferir antes de salvar — ver a rota [setId].
+      "Content-Disposition": `inline; filename="${pdfFilename("", { lista: "estrelas", escala })}"`,
       "Content-Length": String(bytes.byteLength),
+      "Cache-Control": "no-store, max-age=0",
     },
   });
 }

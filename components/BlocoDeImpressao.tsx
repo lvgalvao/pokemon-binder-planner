@@ -36,6 +36,8 @@ export default function BlocoDeImpressao({
       <div className="mt-3 grid gap-2">
         <a
           href={href}
+          target="_blank"
+          rel="noopener"
           className={`flex min-h-14 flex-col items-center justify-center rounded-xl px-4 py-2 leading-tight ${
             estrela
               ? "bg-(--color-estrela) text-white"
@@ -52,6 +54,8 @@ export default function BlocoDeImpressao({
 
         <a
           href={reduzido}
+          target="_blank"
+          rel="noopener"
           className="flex min-h-14 flex-col items-center justify-center rounded-xl bg-(--color-mesa) px-4 py-2 leading-tight ring-1 ring-black/5"
         >
           <span className="flex items-center gap-2 text-base font-semibold">
@@ -62,6 +66,10 @@ export default function BlocoDeImpressao({
           </span>
         </a>
       </div>
+
+      <p className="mt-2.5 text-center text-xs text-(--color-tinta-fraca)">
+        Abre numa aba para conferir antes de salvar.
+      </p>
     </div>
   );
 }
