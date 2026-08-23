@@ -141,7 +141,13 @@ export default function Binder({
     () => missing.filter((i) => starred.has(chave(i))),
     [missing, starred],
   );
-  const stats = progress(posicoes.length, owned.size);
+  /**
+   * A conta sai de `missing`, nao de `owned.size`: o conjunto gravado pode conter
+   * chave que o fichario nao mostra mais (uma carta que saiu do manifest, ou um
+   * `#holo` de colecao que perdeu o reverse). Contando o gravado, o cabecalho
+   * dizia um numero e o botao do PDF, outro — e a folha e quem tem razao.
+   */
+  const stats = progress(posicoes.length, posicoes.length - missing.length);
   const numberWidth = Math.max(String(cards.length).length, 2);
 
   const spreadCount = Math.max(1, Math.ceil(pages.length / 2));

@@ -56,8 +56,24 @@ export default function CardSlot({
 }: Props) {
   const [failed, setFailed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * A marcacao que esta esperando a janela passar. So a MARCACAO entra aqui —
+   * abrir a carta grande, nao: uma carta abrindo sozinha depois de virar a
+   * pagina seria um susto, enquanto uma marcacao perdida e um dado perdido.
+   */
+  const marcacaoPendente = useRef<(() => void) | null>(null);
 
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+      // Virar a pagina desmonta o bolso. Marcar as nove e virar logo em seguida
+      // e o gesto normal da varredura — sem este flush, a ultima marcacao morria
+      // com o timer, e essa perda seria mais comum que o efeito colateral que a
+      // janela existe para evitar.
+      marcacaoPendente.current?.();
+    },
+    [],
+  );
 
   // Bolso sem carta: acontece de verdade na ultima pagina. Fica vazio mesmo —
   // o fichario fisico e assim, e preencher seria mentira.
@@ -71,23 +87,29 @@ export default function CardSlot({
   const porExtenso = nomeVariante(setId, variant);
   const label = String(cardNumber(card)).padStart(numberWidth, "0");
 
+  const cancelarPendente = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    marcacaoPendente.current = null;
+  };
+
   /**
    * Um clique abre, dois marcam, tres poem estrela. O `detail` do evento ja traz
    * a contagem da sequencia, entao os tres casos saem de um unico handler — sem
    * precisar somar cliques na mao.
    *
    * **Os dois primeiros esperam a janela; o terceiro cancela os dois.** Sem essa
-   * espera no toque DUPLO, todo toque triplo passava por ele: por o cardapio de
-   * uma estrela marcava a carta como "tenho" no caminho, e numa carta que ele ja
-   * tinha o mesmo toque APAGAVA a posse. Aconteceu de verdade — 33 estrelas
-   * postas, 25 posses criadas junto, e cartas de verdade sumindo da colecao.
-   * O terceiro clique limpa o timer do segundo antes que ele dispare.
+   * espera no toque DUPLO, todo toque triplo passava por ele: por uma estrela
+   * numa carta que ele nao tem marcava a carta como "tenho" no caminho, e numa
+   * carta que ele tem o mesmo toque APAGAVA a posse. Aconteceu de verdade — 33
+   * estrelas postas, 25 posses criadas junto, e cartas saindo da colecao.
+   *
+   * A espera so e segura porque a marcacao pendente sobrevive ao desmonte (ver
+   * `marcacaoPendente`): marcar as nove da pagina e virar em seguida e o gesto
+   * normal da varredura, e a folha nao pode levar embora o ultimo toque.
    */
   const aoClicar = (e: React.MouseEvent) => {
-    if (timer.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
+    cancelarPendente();
     // `detail` vem 0 quando o clique nao veio do mouse — Enter/Espaco no botao
     // focado, ou `.click()` por codigo. Nesses casos vale como um clique so.
     const cliques = e.detail || 1;
@@ -97,9 +119,12 @@ export default function CardSlot({
         onOpen(item);
       }, JANELA_TOQUE_DUPLO);
     } else if (cliques === 2) {
+      const marcar = () => onToggle(item);
+      marcacaoPendente.current = marcar;
       timer.current = setTimeout(() => {
         timer.current = null;
-        onToggle(item);
+        marcacaoPendente.current = null;
+        marcar();
       }, JANELA_TOQUE_DUPLO);
     } else if (cliques === 3) {
       // O timer do segundo clique ja foi limpo la em cima: a estrela nao carrega

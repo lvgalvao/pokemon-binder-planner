@@ -37,7 +37,9 @@ node tools/sync-manifests.mjs                                 # assets/ -> data/
 node tools/upload-assets.mjs --set me5                        # derivados -> Supabase Storage
 ```
 
-Não há passo de banco: o SQLite se cria sozinho em `data/binder.db` na primeira execução.
+Não há passo de banco a rodar à mão: o schema vive em `supabase/migrations/` e já está
+aplicado no projeto (`kuhhbncqurtwucylhsmq`). Depois de qualquer migração, regerar os tipos:
+`supabase gen types typescript --project-id kuhhbncqurtwucylhsmq > lib/database.types.ts`.
 
 ## Arquitetura
 
@@ -58,10 +60,15 @@ A spec de assets §11 manda usar um `download_cards.py` que vive no projeto `Pok
 virou Node porque `sharp` já é dependência (dispensa venv e Pillow) e porque o script Python
 fala uma fonte só. A saída é a mesma da spec §2 e §5 — `tests/manifests.test.ts` cobre a forma.
 
-**Sem ORM.** `node:sqlite` embutido no Node 22 (`lib/db.ts`). Duas tabelas, só estado do usuário:
-`binder` (layout e ordem por coleção) e `owned_card` (presença da linha = possui). O PRD sugeria
-Prisma; o Prisma 7 exige `prisma.config.ts` mais driver adapter nativo, o que é mais peça móvel
-que problema resolvido para duas tabelas.
+**Sem ORM.** Postgres no Supabase, com RLS, acessado pelo cliente `supabase-js` (`lib/db.ts`).
+Três tabelas, só estado do usuário: `binder` (layout e ordem por coleção), `owned_card` (presença
+da linha = possui) e `starred_card` (presença da linha = quero muito). Nasceu em `node:sqlite`
+local e migrou para ter dono e sobreviver ao aparelho; o PRD sugeria Prisma, que exigiria
+`prisma.config.ts` mais driver adapter — mais peça móvel que problema resolvido para três tabelas.
+
+**Toda consulta recebe `userId` explícito**, em vez de ir buscar a sessão por dentro. É o que
+deixa "sem sessão = fichário vazio" visível em cada chamada — e este app abre sem sessão de
+propósito. A conta anônima só nasce na primeira marcação (`requireUserId`), nunca na leitura.
 
 **A separação que sustenta tudo** (PRD §41), preservada:
 
@@ -101,8 +108,11 @@ gravado era, por definição, a versão normal. `parseItemKey` recusa sufixo
 desconhecido em vez de tratá-lo como normal: duas chaves diferentes cairiam no
 mesmo bolso e uma marcação apagaria a outra.
 
-`assets/` fica **fora de `public/`** (830 MB). É servido por `app/img/[...path]/route.ts`, que
-valida o caminho contra a whitelist dos 7 buckets antes de tocar o disco.
+`assets/` fica **fora de `public/`** (830 MB) e não é servido pelo app: as imagens vêm do bucket
+público `cards` no Supabase Storage, em dois derivados por carta (`web/` 400w WebP para a grade,
+`print/` para o PDF e a tela cheia — `lib/assets.ts`, gerados por `tools/upload-assets.mjs`).
+Nenhum dos dois passa pelo otimizador da Vercel: já saem no tamanho certo, e 4.749 cartas
+estourariam a cota de transformações sozinhas.
 
 ## Armadilhas reais deste código
 
@@ -153,7 +163,9 @@ nenhum. Aconteceu de verdade — duas contas nascidas com 35 ms de diferença
 isso, e não cookie expirando, que fazia o fichário "perder tudo" ao voltar.
 
 **O toque simples E o duplo são adiados em 260 ms** (`CardSlot.tsx`), para poderem ser cancelados
-pelo toque seguinte. Sem a janela no simples, o primeiro dos dois toques da marcação abriria a
+pelo toque seguinte — e a marcação adiada é **executada no desmonte** (`marcacaoPendente`), senão
+virar a página logo depois de marcar a nona carta levaria a marcação junto: é o gesto normal da
+varredura, e seria uma perda mais frequente que o efeito colateral que a janela evita. Sem a janela no simples, o primeiro dos dois toques da marcação abriria a
 carta grande. Sem a janela no **duplo**, todo toque triplo passa por ele — e isso não é teórico:
 na primeira hora da estrela em produção, 33 estrelas criaram 25 posses no caminho, e nas cartas
 que ele já tinha o mesmo gesto **apagou** a posse (`owned_card DELETE` seguido de

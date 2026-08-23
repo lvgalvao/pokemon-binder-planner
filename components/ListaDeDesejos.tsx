@@ -46,7 +46,7 @@ export default function ListaDeDesejos({ estrelas }: { estrelas: Estrela[] }) {
           fichario — nao ha bolso, nem numeracao a respeitar. Cada uma leva a
           colecao de onde veio. */}
       <ul className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(58px,1fr))] gap-2.5">
-        {estrelas.map((e) => {
+        {estrelas.map((e, i) => {
           const versao = nomeVariante(e.setId, e.variant);
           return (
             <li key={`${e.setId}-${e.card.id}-${e.variant}`}>
@@ -62,12 +62,17 @@ export default function ListaDeDesejos({ estrelas }: { estrelas: Estrela[] }) {
                     e.owned ? "ring-(--color-tenho)" : "ring-(--color-estrela)"
                   }`}
                 >
+                  {/* O derivado `web/` tem 400w (~34 KB) e aqui a miniatura tem
+                      ~58 px — nao ha derivado menor. Com a lista crescendo, o
+                      que sobra e nao baixar o que esta fora da tela: as duas
+                      primeiras filas vem no ato, o resto quando chegar a vez. */}
                   <Image
                     src={webUrl(e.card)}
                     alt={e.card.name}
                     width={400}
                     height={559}
                     unoptimized
+                    loading={i < 24 ? "eager" : "lazy"}
                     className="aspect-[63/88] w-full object-cover"
                   />
                   {/* Estrela ja conquistada: continua na lista, com o visto. Tirar
