@@ -76,10 +76,12 @@ export default function CardSlot({
    * a contagem da sequencia, entao os tres casos saem de um unico handler — sem
    * precisar somar cliques na mao.
    *
-   * Marcar continua agindo no ato (sem espera). O terceiro clique nao desfaz o
-   * segundo de proposito: quem toca tres vezes numa carta que acabou de marcar
-   * fica com ela marcada E com estrela, que sao respostas a perguntas
-   * diferentes ("ja tenho?" e "quero muito?").
+   * **Os dois primeiros esperam a janela; o terceiro cancela os dois.** Sem essa
+   * espera no toque DUPLO, todo toque triplo passava por ele: por o cardapio de
+   * uma estrela marcava a carta como "tenho" no caminho, e numa carta que ele ja
+   * tinha o mesmo toque APAGAVA a posse. Aconteceu de verdade — 33 estrelas
+   * postas, 25 posses criadas junto, e cartas de verdade sumindo da colecao.
+   * O terceiro clique limpa o timer do segundo antes que ele dispare.
    */
   const aoClicar = (e: React.MouseEvent) => {
     if (timer.current) {
@@ -95,8 +97,13 @@ export default function CardSlot({
         onOpen(item);
       }, JANELA_TOQUE_DUPLO);
     } else if (cliques === 2) {
-      onToggle(item);
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        onToggle(item);
+      }, JANELA_TOQUE_DUPLO);
     } else if (cliques === 3) {
+      // O timer do segundo clique ja foi limpo la em cima: a estrela nao carrega
+      // uma marcacao de posse junto.
       onToggleStar(item);
     }
   };

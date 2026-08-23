@@ -152,8 +152,13 @@ nenhum. Aconteceu de verdade — duas contas nascidas com 35 ms de diferença
 (`01:00:04.228` e `01:00:04.263`), 55 cartas presas na que perdeu o cookie. Era
 isso, e não cookie expirando, que fazia o fichário "perder tudo" ao voltar.
 
-**O toque simples é adiado em 260 ms** (`CardSlot.tsx`) para poder ser cancelado pelo toque duplo.
-Sem essa janela, o primeiro dos dois toques da marcação abriria a carta grande.
+**O toque simples E o duplo são adiados em 260 ms** (`CardSlot.tsx`), para poderem ser cancelados
+pelo toque seguinte. Sem a janela no simples, o primeiro dos dois toques da marcação abriria a
+carta grande. Sem a janela no **duplo**, todo toque triplo passa por ele — e isso não é teórico:
+na primeira hora da estrela em produção, 33 estrelas criaram 25 posses no caminho, e nas cartas
+que ele já tinha o mesmo gesto **apagou** a posse (`owned_card DELETE` seguido de
+`starred_card POST`, nos logs). Enquanto o gesto era "esconder", o efeito passava despercebido:
+esconder apagava a posse de propósito.
 
 **`e.detail` vem 0 quando o clique não veio do mouse** — Enter/Espaço no botão focado ou
 `.click()` por código. Sem o `e.detail || 1` em `CardSlot.tsx`, a ativação por teclado não
