@@ -13,7 +13,7 @@ import { BUCKET_LABELS, nomeVariante, type Card, type SlotItem } from "@/lib/typ
  * Tambem e o caminho de marcacao com um toque so: quem nao acerta o toque duplo
  * abre a carta e usa o botao. O toque duplo continua sendo o atalho da varredura.
  */
-export default function CardViewer({
+export default function CardViewer<T extends SlotItem>({
   item,
   setId,
   owned,
@@ -23,14 +23,14 @@ export default function CardViewer({
   onToggleStar,
   onClose,
 }: {
-  item: SlotItem;
+  item: T;
   /** Preciso para dizer QUAL brilhante, onde a colecao tem dois reverses. */
   setId: string;
   owned: boolean;
   starred: boolean;
   numberWidth: number;
-  onToggle: (item: SlotItem) => void;
-  onToggleStar: (item: SlotItem) => void;
+  onToggle: (item: T) => void;
+  onToggleStar: (item: T) => void;
   onClose: () => void;
 }) {
   const { card, variant } = item;

@@ -26,8 +26,13 @@ const LOADING = "eager" as const;
  */
 const JANELA_TOQUE_DUPLO = 260;
 
-type Props = {
-  item: SlotItem | null;
+/**
+ * Generico no item so para nao perder o que o chamador sabe: o fichario montado
+ * passa bolsos que carregam a colecao de origem, e os handlers dele precisam
+ * receber isso de volta. Para o bolso em si nada muda — carta e variante bastam.
+ */
+type Props<T extends SlotItem> = {
+  item: T | null;
   /** Preciso para o selo: onde ha dois reverses, ele nomeia QUAL. */
   setId: string;
   owned: boolean;
@@ -36,14 +41,14 @@ type Props = {
   starred: boolean;
   numberWidth: number;
   /** Toque duplo: marca ou desmarca. */
-  onToggle: (item: SlotItem) => void;
+  onToggle: (item: T) => void;
   /** Toque triplo: poe ou tira a estrela. */
-  onToggleStar: (item: SlotItem) => void;
+  onToggleStar: (item: T) => void;
   /** Toque simples: abre a carta grande. */
-  onOpen: (item: SlotItem) => void;
+  onOpen: (item: T) => void;
 };
 
-export default function CardSlot({
+export default function CardSlot<T extends SlotItem>({
   item,
   setId,
   owned,
@@ -53,7 +58,7 @@ export default function CardSlot({
   onToggle,
   onToggleStar,
   onOpen,
-}: Props) {
+}: Props<T>) {
   const [failed, setFailed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**

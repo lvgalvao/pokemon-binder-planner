@@ -206,3 +206,37 @@ export function expandirVariantes(cards: readonly Card[], setId: string): SlotIt
   }
   return out;
 }
+
+/**
+ * As raridades que a crianca chama de "as boas": tudo acima de rara.
+ *
+ * A regra e por exclusao, e nao por lista: especial e o que NAO e comum, incomum
+ * ou rara. Assim uma raridade nova que apareca num set futuro entra aqui sozinha
+ * — que e o lado certo de errar, porque o atalho existe para tirar da frente as
+ * tres raridades que enchem o fichario, nao para catalogar as outras.
+ *
+ * Promo fica dentro por consequencia disso, e esta certo: ela nao e nenhuma das
+ * tres removidas. Na colecao que so tem promos o atalho some da tela — ver
+ * `atalhoEspeciaisSeparaAlgo`, que so o oferece onde ele de fato separa.
+ */
+const BUCKETS_COMUNS: ReadonlySet<Bucket> = new Set<Bucket>([
+  "01_comum",
+  "02_incomum",
+  "03_raras",
+]);
+
+export function bucketEspecial(bucket: Bucket): boolean {
+  return !BUCKETS_COMUNS.has(bucket);
+}
+
+export const BUCKETS_ESPECIAIS: readonly Bucket[] = BUCKETS.filter(bucketEspecial);
+
+/**
+ * O atalho "so as especiais" so aparece onde ele separa alguma coisa: numa
+ * colecao inteira de promos ele daria exatamente o mesmo resultado de "todas",
+ * e um botao que nao muda nada e um botao que ensina a nao confiar nos botoes.
+ */
+export function atalhoEspeciaisSeparaAlgo(bucketsPresentes: readonly Bucket[]): boolean {
+  const especiais = bucketsPresentes.filter(bucketEspecial).length;
+  return especiais > 0 && especiais < bucketsPresentes.length;
+}

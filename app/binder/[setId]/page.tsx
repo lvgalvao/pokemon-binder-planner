@@ -32,9 +32,11 @@ export default async function BinderPage({
 
   return (
     <Binder
-      setId={manifest.setId}
-      setName={manifest.setName}
-      cards={manifest.cards}
+      titulo={manifest.setName}
+      colecoes={[
+        { setId: manifest.setId, setName: manifest.setName, cards: manifest.cards },
+      ]}
+      origem={{ tipo: "colecao", setId: manifest.setId }}
       initialOwned={[...owned]}
       initialStarred={[...starred]}
       initialRows={binder.rows}

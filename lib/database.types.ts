@@ -50,6 +50,39 @@ export type Database = {
         }
         Relationships: []
       }
+      binder_group: {
+        Row: {
+          columns: number
+          created_at: string
+          id: string
+          nome: string
+          rows: number
+          set_ids: string[]
+          sort_rule: string
+          user_id: string
+        }
+        Insert: {
+          columns?: number
+          created_at?: string
+          id?: string
+          nome: string
+          rows?: number
+          set_ids: string[]
+          sort_rule?: string
+          user_id: string
+        }
+        Update: {
+          columns?: number
+          created_at?: string
+          id?: string
+          nome?: string
+          rows?: number
+          set_ids?: string[]
+          sort_rule?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       owned_card: {
         Row: {
           card_id: string

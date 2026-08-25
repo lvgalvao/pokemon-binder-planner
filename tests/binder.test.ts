@@ -3,6 +3,7 @@ import {
   binderCapacity,
   pagesNeeded,
   generateSlots,
+  generateSlotsByGroup,
   missingCards,
   progress,
   findCardPage,
@@ -10,6 +11,9 @@ import {
 import { cardNumber } from "@/lib/cards";
 import {
   LAYOUTS,
+  BUCKETS_ESPECIAIS,
+  bucketEspecial,
+  atalhoEspeciaisSeparaAlgo,
   layoutKey,
   temReverseHolo,
   variantesDe,
@@ -299,5 +303,75 @@ describe("versões simples e brilhante", () => {
     const m = getManifest("me2pt5")!;
     // 295 cartas + 178 com reverse × 2 versões brilhantes.
     expect(expandirVariantes(m.cards, "me2pt5")).toHaveLength(651);
+  });
+});
+
+describe("generateSlotsByGroup", () => {
+  const item = (setId: string, n: number) => ({ setId, n });
+
+  it("uma colecao so: exatamente o que generateSlots devolvia", () => {
+    const itens = cards(20).map((c) => ({ setId: "x", card: c }));
+    expect(generateSlotsByGroup(itens, 3, 3, (i) => i.setId)).toEqual(
+      generateSlots(itens, 3, 3),
+    );
+  });
+
+  it("a segunda colecao comeca numa pagina nova, nunca no meio da primeira", () => {
+    const itens = [
+      ...Array.from({ length: 10 }, (_, i) => item("a", i + 1)),
+      ...Array.from({ length: 4 }, (_, i) => item("b", i + 1)),
+    ];
+    const pages = generateSlotsByGroup(itens, 3, 3, (i) => i.setId);
+
+    // 10 cartas de "a" = duas paginas (a segunda com 8 bolsos vazios), e so
+    // entao "b" comeca.
+    expect(pages).toHaveLength(3);
+    expect(pages[1].map((i) => i && i.setId)).toEqual([
+      "a", null, null, null, null, null, null, null, null,
+    ]);
+    expect(pages[2].map((i) => i && i.setId)).toEqual([
+      "b", "b", "b", "b", null, null, null, null, null,
+    ]);
+  });
+
+  it("preserva a ordem das colecoes, mesmo com uma delas no meio de outra", () => {
+    const itens = [item("a", 1), item("b", 1), item("a", 2)];
+    const pages = generateSlotsByGroup(itens, 2, 2, (i) => i.setId);
+    // Tres trechos consecutivos, tres paginas: a lista e que manda, e nao um
+    // agrupamento por chave que reordenaria o fichario.
+    expect(pages).toHaveLength(3);
+    expect(pages.map((p) => p[0] && p[0].setId)).toEqual(["a", "b", "a"]);
+  });
+
+  it("lista vazia nao gera pagina", () =>
+    expect(generateSlotsByGroup([], 3, 3, () => "a")).toEqual([]));
+});
+
+describe("raridades especiais", () => {
+  it("especial e o que nao e comum, incomum nem rara", () => {
+    expect(BUCKETS_ESPECIAIS).toEqual([
+      "04_duplo_raras",
+      "05_arte_secreta",
+      "06_duplo_arte_secreta",
+      "07_legendaria",
+      "08_promo",
+    ]);
+    expect(bucketEspecial("03_raras")).toBe(false);
+    expect(bucketEspecial("04_duplo_raras")).toBe(true);
+  });
+
+  it("o atalho so aparece onde ele separa alguma coisa", () => {
+    expect(atalhoEspeciaisSeparaAlgo(["01_comum", "03_raras", "07_legendaria"])).toBe(true);
+    // A colecao de promos e especial inteira: o atalho daria o mesmo que "todas".
+    expect(atalhoEspeciaisSeparaAlgo(["08_promo"])).toBe(false);
+    expect(atalhoEspeciaisSeparaAlgo(["01_comum", "02_incomum"])).toBe(false);
+  });
+
+  it("na colecao de promos (mep) o atalho fica escondido", () => {
+    const m = getManifest("mep");
+    if (!m) return; // sem assets/ sincronizados, o teste nao tem o que conferir
+    const presentes = [...new Set(m.cards.map((c) => c.bucket))];
+    expect(presentes).toEqual(["08_promo"]);
+    expect(atalhoEspeciaisSeparaAlgo(presentes)).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { listSets } from "@/lib/manifests";
-import { ownedCountBySet } from "@/lib/db";
+import { listarFicharios, ownedCountBySet } from "@/lib/db";
 import { estrelasDoUsuario } from "@/lib/listas";
 import { getUserId } from "@/lib/session";
 import { coverUrl } from "@/lib/assets";
@@ -21,10 +21,12 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const sets = listSets();
   const userId = await getUserId();
-  const [owned, estrelas] = await Promise.all([
+  const [owned, estrelas, ficharios] = await Promise.all([
     ownedCountBySet(userId),
     estrelasDoUsuario(userId),
+    listarFicharios(userId),
   ]);
+  const porId = new Map(sets.map((s) => [s.setId, s]));
 
   return (
     <main className="mx-auto max-w-6xl px-5 pb-16 pt-10 sm:px-8">
@@ -40,7 +42,89 @@ export default async function Home() {
           nao ha nenhuma estrela. */}
       <ListaDeDesejos estrelas={estrelas} />
 
-      <ul className="mt-9 grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 lg:grid-cols-4">
+      {/*
+        Os ficharios montados a mao vem antes das colecoes soltas: sao a pasta
+        que existe na mesa, e a colecao avulsa e a materia-prima dela. So
+        aparecem quando ha algum — nao ha estado vazio a inventar aqui, o convite
+        para montar o primeiro mora no cabecalho das colecoes.
+      */}
+      {ficharios.length > 0 && (
+        <section className="mt-9">
+          <h2 className="text-sm font-semibold tracking-wide text-(--color-tinta-fraca) uppercase">
+            Meus fichários
+          </h2>
+          <ul className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {ficharios.map((f) => {
+              const colecoes = f.setIds
+                .map((id) => porId.get(id))
+                .filter((s) => s !== undefined);
+              const total = colecoes.reduce((n, s) => n + s.totalSet, 0);
+              const tenho = colecoes.reduce((n, s) => n + (owned.get(s.setId) ?? 0), 0);
+
+              return (
+                <li key={f.id}>
+                  <Link
+                    href={`/fichario/${f.id}`}
+                    className="group flex items-center gap-4 rounded-2xl bg-(--color-folha) p-4 shadow-sm ring-1 ring-black/5 transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--color-tenho)"
+                  >
+                    {/* As capas em leque dizem QUAIS colecoes sem precisar
+                        escrever os nomes, que nao caberiam. */}
+                    <span className="flex shrink-0">
+                      {colecoes.slice(0, 3).map((s, i) => (
+                        <Image
+                          key={s.setId}
+                          src={coverUrl(s.setId)}
+                          alt=""
+                          width={366}
+                          height={670}
+                          unoptimized
+                          className={`aspect-[366/670] w-11 rounded-lg object-cover shadow-sm ring-1 ring-black/10 ${
+                            i > 0 ? "-ml-3.5" : ""
+                          }`}
+                        />
+                      ))}
+                    </span>
+
+                    <span className="min-w-0">
+                      <span className="block truncate text-base leading-snug font-medium">
+                        {f.nome}
+                      </span>
+                      <span className="tabular mt-0.5 block text-sm text-(--color-tinta-fraca)">
+                        {tenho >= total && total > 0 ? (
+                          <span className="font-medium text-(--color-tenho)">
+                            Completo · {colecoes.length} coleções
+                          </span>
+                        ) : (
+                          <>
+                            {colecoes.length} coleções · {tenho} de {total} cartas
+                          </>
+                        )}
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* O convite para juntar mora no cabecalho das colecoes, e nao num botao
+          grande no alto: montar um fichario e gesto raro, escolher uma colecao e
+          o que se faz toda vez. */}
+      <div className="mt-9 flex flex-wrap items-baseline justify-between gap-3">
+        <h2 className="text-sm font-semibold tracking-wide text-(--color-tinta-fraca) uppercase">
+          Coleções
+        </h2>
+        <Link
+          href="/fichario/novo"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-(--color-folha) px-4 text-sm font-medium shadow-sm ring-1 ring-black/5 hover:text-(--color-tinta)"
+        >
+          <span className="text-base leading-none">+</span> juntar coleções num fichário
+        </Link>
+      </div>
+
+      <ul className="mt-3 grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 lg:grid-cols-4">
         {sets.map((set, i) => {
           const tenho = owned.get(set.setId) ?? 0;
           const completa = tenho >= set.totalSet;

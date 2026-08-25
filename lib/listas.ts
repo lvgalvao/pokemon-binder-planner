@@ -98,3 +98,24 @@ export async function itensDasEstrelas(userId: string | null): Promise<ItemImpre
     .filter((e) => !e.owned)
     .map(({ card, variant, setId }) => ({ card, variant, setId }));
 }
+
+/**
+ * O que vai para a folha de um fichario montado: as colecoes em serie, na ordem
+ * das folhas.
+ *
+ * Uma folha so, e nao uma por colecao, porque e assim que ela vai ser usada — o
+ * recorte segue a sequencia em que a crianca vai encaixar, atravessando as
+ * colecoes exatamente como o fichario atravessa.
+ */
+export async function itensDoFichario(
+  userId: string | null,
+  setIds: readonly string[],
+  lista: Lista,
+): Promise<ItemImpresso[]> {
+  const porColecao = await Promise.all(
+    setIds.map((setId) => itensDaColecao(userId, setId, lista)),
+  );
+  // Uma colecao que saiu do disco vira null e apenas some da folha, como some da
+  // tela — o resto do fichario continua imprimivel.
+  return porColecao.flatMap((itens) => itens ?? []);
+}

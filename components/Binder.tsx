@@ -2,13 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { sortCards, cardNumber } from "@/lib/cards";
-import { generateSlots, missingCards, progress, findCardPage } from "@/lib/binder";
+import {
+  generateSlotsByGroup,
+  missingCards,
+  progress,
+  findCardPage,
+} from "@/lib/binder";
 import {
   LAYOUTS,
+  BUCKET_LABELS,
+  BUCKETS,
   layoutKey,
   itemKey,
   expandirVariantes,
+  bucketEspecial,
+  atalhoEspeciaisSeparaAlgo,
+  type Bucket,
   type Card,
   type SlotItem,
   type SortRule,
@@ -17,17 +28,43 @@ import BlocoDeImpressao from "./BlocoDeImpressao";
 import CardSlot from "./CardSlot";
 import CardViewer from "./CardViewer";
 import FindCard from "./FindCard";
+import Raridades from "./Raridades";
+
+/** Uma colecao dentro do fichario, na ordem em que ela entra nas folhas. */
+export type ColecaoNoFichario = { setId: string; setName: string; cards: Card[] };
+
+/**
+ * De onde o fichario veio, que e o que decide onde ele grava e de onde saem as
+ * folhas. Uma colecao aberta direto (`/binder/sv7`) e um fichario montado a mao
+ * com varias colecoes (`/fichario/<id>`) sao a MESMA tela — a diferenca cabe
+ * nestes dois campos, e nao numa segunda copia do fichario.
+ */
+export type Origem =
+  | { tipo: "colecao"; setId: string }
+  | { tipo: "montado"; id: string };
 
 type Props = {
-  setId: string;
-  setName: string;
-  cards: Card[];
+  /** O nome no alto: a colecao, ou o fichario que ele montou. */
+  titulo: string;
+  /** Uma, quando se abre uma colecao; varias, num fichario montado. */
+  colecoes: ColecaoNoFichario[];
+  origem: Origem;
   initialOwned: string[];
   initialStarred: string[];
   initialRows: number;
   initialColumns: number;
   initialSortRule: SortRule;
 };
+
+/**
+ * Uma posicao do fichario que sabe de que colecao veio.
+ *
+ * Num fichario com tres colecoes, "o setId" deixa de ser propriedade da tela e
+ * passa a ser propriedade do BOLSO: e ele que decide o selo da variante (so
+ * `me2pt5` tem dois reverses), a que manifest a marcacao vai ser validada e em
+ * que pagina a colecao seguinte comeca.
+ */
+type Posicao = SlotItem & { setId: string; setName: string };
 
 /**
  * Quatro olhares sobre a mesma colecao:
@@ -69,9 +106,9 @@ function enfileirar<T>(tarefa: () => Promise<T>): Promise<T> {
 const DURACAO_DA_VIRADA = 433;
 
 export default function Binder({
-  setId,
-  setName,
-  cards,
+  titulo,
+  colecoes,
+  origem,
   initialOwned,
   initialStarred,
   initialRows,
@@ -83,15 +120,24 @@ export default function Binder({
   const [rows, setRows] = useState(initialRows);
   const [columns, setColumns] = useState(initialColumns);
   const [sortRule, setSortRule] = useState<SortRule>(initialSortRule);
-  const [aberta, setAberta] = useState<SlotItem | null>(null);
+  const [aberta, setAberta] = useState<Posicao | null>(null);
   const [view, setView] = useState<View>("full");
+  /**
+   * Quais raridades estao a vista. `null` = todas, que e o fichario de sempre.
+   *
+   * Nao e persistido de proposito: o filtro e uma lente que a crianca pega e
+   * larga ("deixa eu ver so as boas"), nao um jeito de o fichario ficar. Voltar
+   * e reabrir devolve a colecao inteira, sem ninguem precisar lembrar de limpar.
+   */
+  const [raridades, setRaridades] = useState<Set<Bucket> | null>(null);
+  const [escolhendoRaridades, setEscolhendoRaridades] = useState(false);
   const [spread, setSpread] = useState(0); // par de paginas aberto
   type Flip = {
     de: number;
     para: number;
     dir: "frente" | "tras";
-    faceDeFora: (SlotItem | null)[];
-    faceDeDentro: (SlotItem | null)[];
+    faceDeFora: (Posicao | null)[];
+    faceDeDentro: (Posicao | null)[];
     /** Caixa medida da folha, em px relativos ao fichario. */
     caixa: { left: number; top: number; width: number; height: number; recuo: number };
   };
@@ -100,39 +146,103 @@ export default function Binder({
   const [finding, setFinding] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [confirmandoDesfazer, setConfirmandoDesfazer] = useState(false);
+  const router = useRouter();
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fichRef = useRef<HTMLDivElement>(null);
   const ladoEsqRef = useRef<HTMLDivElement>(null);
   const ladoDirRef = useRef<HTMLDivElement>(null);
   const argolasRef = useRef<HTMLDivElement>(null);
 
-  const ordenadas = useMemo(() => sortCards(cards, sortRule), [cards, sortRule]);
-
   /**
-   * Cada carta comum/incomum/rara ocupa DOIS bolsos: a simples e a brilhante,
-   * lado a lado. A expansao acontece depois da ordenacao, entao o par fica junto
-   * em qualquer das duas ordens.
+   * Todos os bolsos do fichario, na ordem: colecao por colecao, e dentro de cada
+   * uma a ordem escolhida.
+   *
+   * A ordenacao acontece DENTRO da colecao, nunca no fichario inteiro: juntar
+   * tres colecoes e po-las em sequencia, nao embaralhar as tres pela raridade —
+   * o numero 1 da segunda colecao vem depois da ultima carta da primeira, como
+   * na pasta de verdade.
+   *
+   * Cada carta comum/incomum/rara ocupa DOIS bolsos (a simples e a brilhante), e
+   * a expansao vem depois da ordenacao, entao o par fica junto nas duas ordens.
    */
-  const posicoes = useMemo(
-    () => expandirVariantes(ordenadas, setId),
-    [ordenadas, setId],
-  );
+  const posicoes = useMemo<Posicao[]>(() => {
+    const out: Posicao[] = [];
+    for (const c of colecoes) {
+      for (const item of expandirVariantes(sortCards(c.cards, sortRule), c.setId)) {
+        out.push({ ...item, setId: c.setId, setName: c.setName });
+      }
+    }
+    return out;
+  }, [colecoes, sortRule]);
 
   const chave = (i: SlotItem) => itemKey(i.card.id, i.variant);
+  const varias = colecoes.length > 1;
 
   /**
    * "O que eu tenho" remonta o fichario apenas com as cartas que ele possui,
    * fechando os buracos. E o fichario como esta de verdade na mesa: a crianca
    * encaixa as cartas em sequencia, nao deixa bolso reservado para o que falta.
    */
+  /**
+   * As posicoes que sobraram do filtro de raridade — a colecao inteira, quando
+   * nao ha filtro. Vem ANTES dos quatro olhares porque as duas perguntas sao
+   * independentes: "so as especiais" e "o que falta" combinam, e o resultado e
+   * o que falta entre as especiais.
+   */
+  const visiveis = useMemo(
+    () => (raridades ? posicoes.filter((i) => raridades.has(i.card.bucket)) : posicoes),
+    [posicoes, raridades],
+  );
   const naPagina = useMemo(() => {
-    if (view === "mine") return posicoes.filter((i) => owned.has(chave(i)));
-    if (view === "missing") return posicoes.filter((i) => !owned.has(chave(i)));
-    if (view === "star") return posicoes.filter((i) => starred.has(chave(i)));
-    return posicoes;
-  }, [posicoes, view, owned, starred]);
+    if (view === "mine") return visiveis.filter((i) => owned.has(chave(i)));
+    if (view === "missing") return visiveis.filter((i) => !owned.has(chave(i)));
+    if (view === "star") return visiveis.filter((i) => starred.has(chave(i)));
+    return visiveis;
+  }, [visiveis, view, owned, starred]);
+
+  /**
+   * Quantos BOLSOS cada raridade ocupa nesta colecao, na ordem do fichario.
+   *
+   * Bolsos e nao cartas: e o que a crianca ve e o que a folha vai gastar — uma
+   * comum com reverse ocupa dois. So as raridades presentes entram, entao a
+   * colecao de promos abre um painel de uma linha so em vez de sete zeros.
+   */
+  const contagens = useMemo(() => {
+    const n = new Map<Bucket, number>();
+    for (const i of posicoes) n.set(i.card.bucket, (n.get(i.card.bucket) ?? 0) + 1);
+    return BUCKETS.filter((b) => n.has(b)).map((b) => ({ bucket: b, n: n.get(b)! }));
+  }, [posicoes]);
+
+  /** O que o botao do rodape diz quando ha filtro: o nome da lente, nao "filtro". */
+  const rotuloRaridades = useMemo(() => {
+    if (!raridades) return null;
+    const escolhidas = contagens.filter((c) => raridades.has(c.bucket));
+    const especiais = contagens.filter((c) => bucketEspecial(c.bucket));
+    if (
+      atalhoEspeciaisSeparaAlgo(contagens.map((c) => c.bucket)) &&
+      escolhidas.length === especiais.length &&
+      especiais.every((c) => raridades.has(c.bucket))
+    ) {
+      return "Só as especiais";
+    }
+    if (escolhidas.length === 1) return BUCKET_LABELS[escolhidas[0].bucket];
+    return `${escolhidas.length} raridades`;
+  }, [raridades, contagens]);
+
+  const trocarRaridades = (next: Set<Bucket> | null) => {
+    setRaridades(next);
+    // O fichario encolheu ou cresceu: a pagina 7 do filtro anterior nao e a
+    // mesma pagina 7 deste. Voltar ao comeco e o unico ponto que se sustenta.
+    setSpread(0);
+  };
+  /**
+   * Cada colecao comeca numa pagina nova — ver `generateSlotsByGroup`. Com uma
+   * colecao so a funcao devolve exatamente o que `generateSlots` devolvia, entao
+   * o fichario de sempre nao muda em nada.
+   */
   const pages = useMemo(
-    () => generateSlots(naPagina, rows, columns),
+    () => generateSlotsByGroup(naPagina, rows, columns, (i) => i.setId),
     [naPagina, rows, columns],
   );
   const missing = useMemo(() => missingCards(posicoes, owned, chave), [posicoes, owned]);
@@ -148,7 +258,10 @@ export default function Binder({
    * dizia um numero e o botao do PDF, outro — e a folha e quem tem razao.
    */
   const stats = progress(posicoes.length, posicoes.length - missing.length);
-  const numberWidth = Math.max(String(cards.length).length, 2);
+  const numberWidth = Math.max(
+    ...colecoes.map((c) => String(c.cards.length).length),
+    2,
+  );
 
   const spreadCount = Math.max(1, Math.ceil(pages.length / 2));
   const current = Math.min(spread, spreadCount - 1);
@@ -160,7 +273,7 @@ export default function Binder({
    * esticar para a largura toda e as cartas dobrarem de tamanho.
    */
   const paginaVazia = useMemo(
-    () => Array<SlotItem | null>(rows * columns).fill(null),
+    () => Array<Posicao | null>(rows * columns).fill(null),
     [rows, columns],
   );
   const paginaEsquerda = pages[current * 2] ?? paginaVazia;
@@ -186,29 +299,60 @@ export default function Binder({
         ? null
         : current * 2 + 2;
 
+  const avisarFalha = useCallback(() => {
+    setErro("Não consegui salvar. Tente de novo.");
+    setTimeout(() => setErro(null), 3500);
+  }, []);
+
+  /**
+   * As chaves agrupadas pela colecao a que pertencem.
+   *
+   * A rota de marcacao valida cada chave contra o manifest de UM set — e assim
+   * que ela garante que nunca se grava posse de um bolso que o fichario nao
+   * mostra. Entao um fichario com tres colecoes manda ate tres pedidos. Na
+   * pratica quase sempre e um so: o toque marca uma carta, e o "tenho todas
+   * desta pagina" opera numa pagina, que nunca mistura colecoes.
+   */
+  const porColecao = (itens: readonly Posicao[]) => {
+    const out = new Map<string, string[]>();
+    for (const i of itens) {
+      const lista = out.get(i.setId);
+      lista ? lista.push(chave(i)) : out.set(i.setId, [chave(i)]);
+    }
+    return out;
+  };
+
   /** Grava por tras; a interface ja mudou. Se falhar, desfaz e avisa. */
   const persistOwned = useCallback(
-    async (ids: string[], value: boolean) => {
-      try {
-        const res = await enfileirar(() =>
-          fetch("/api/marcar", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ setId, cardIds: ids, marca: "tenho", valor: value }),
-          }),
-        );
-        if (!res.ok) throw new Error();
-      } catch {
-        setOwned((prev) => {
-          const next = new Set(prev);
-          for (const id of ids) value ? next.delete(id) : next.add(id);
-          return next;
-        });
-        setErro("Não consegui salvar. Tente de novo.");
-        setTimeout(() => setErro(null), 3500);
+    async (itens: readonly Posicao[], value: boolean) => {
+      // So as chaves da colecao que falhou voltam atras: com o pedido de uma
+      // colecao gravado e o da outra perdido, desfazer as duas apagaria da tela
+      // uma marcacao que esta no banco.
+      const perdidas: string[] = [];
+      for (const [setId, cardIds] of porColecao(itens)) {
+        try {
+          const res = await enfileirar(() =>
+            fetch("/api/marcar", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ setId, cardIds, marca: "tenho", valor: value }),
+            }),
+          );
+          if (!res.ok) throw new Error();
+        } catch {
+          perdidas.push(...cardIds);
+        }
       }
+      if (perdidas.length === 0) return;
+
+      setOwned((prev) => {
+        const next = new Set(prev);
+        for (const id of perdidas) value ? next.delete(id) : next.add(id);
+        return next;
+      });
+      avisarFalha();
     },
-    [setId],
+    [avisarFalha],
   );
 
   /**
@@ -217,7 +361,7 @@ export default function Binder({
    * fichario e na conta das faltantes.
    */
   const toggleStar = useCallback(
-    (item: SlotItem) => {
+    (item: Posicao) => {
       const k = itemKey(item.card.id, item.variant);
       const tinha = starred.has(k);
       setStarred((prev) => {
@@ -229,7 +373,12 @@ export default function Binder({
         const res = await fetch("/api/marcar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ setId, cardIds: [k], marca: "estrela", valor: !tinha }),
+          body: JSON.stringify({
+            setId: item.setId,
+            cardIds: [k],
+            marca: "estrela",
+            valor: !tinha,
+          }),
         });
         if (!res.ok) throw new Error();
       }).catch(() => {
@@ -238,15 +387,14 @@ export default function Binder({
           tinha ? next.add(k) : next.delete(k);
           return next;
         });
-        setErro("Não consegui salvar. Tente de novo.");
-        setTimeout(() => setErro(null), 3500);
+        avisarFalha();
       });
     },
-    [starred, setId],
+    [starred, avisarFalha],
   );
 
   const toggle = useCallback(
-    (item: SlotItem) => {
+    (item: Posicao) => {
       const k = itemKey(item.card.id, item.variant);
       const has = owned.has(k);
       setOwned((prev) => {
@@ -254,15 +402,15 @@ export default function Binder({
         has ? next.delete(k) : next.add(k);
         return next;
       });
-      void persistOwned([k], !has);
+      void persistOwned([item], !has);
     },
     [owned, persistOwned],
   );
 
   /** "Tenho todas desta pagina": o atalho que torna a varredura viavel. */
   const togglePage = useCallback(
-    (page: (SlotItem | null)[]) => {
-      const present = page.filter(Boolean) as SlotItem[];
+    (page: (Posicao | null)[]) => {
+      const present = page.filter(Boolean) as Posicao[];
       if (present.length === 0) return;
       const ids = present.map((i) => itemKey(i.card.id, i.variant));
       const allOwned = ids.every((k) => owned.has(k));
@@ -271,7 +419,7 @@ export default function Binder({
         for (const id of ids) (allOwned ? next.delete(id) : next.add(id));
         return next;
       });
-      void persistOwned(ids, !allOwned);
+      void persistOwned(present, !allOwned);
     },
     [owned, persistOwned],
   );
@@ -359,7 +507,11 @@ export default function Binder({
     void fetch("/api/binder", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ setId, ...patch }),
+      body: JSON.stringify(
+        origem.tipo === "colecao"
+          ? { setId: origem.setId, ...patch }
+          : { ficharioId: origem.id, ...patch },
+      ),
     }).catch(() => {});
 
   const applyLayout = (key: string) => {
@@ -380,12 +532,14 @@ export default function Binder({
   const goToCard = (n: number) => {
     let hit = findCardPage(naPagina, n, rows, columns);
 
-    // Fora do modo Total a carta pode nao estar a vista (ja tenho / ja falta).
-    // Em vez de dizer que ela nao existe, volta para o Total e leva ate o lugar dela.
-    if (!hit && view !== "full") {
+    // Fora do modo Total, ou com filtro de raridade, a carta pode nao estar a
+    // vista. Em vez de dizer que ela nao existe, desfaz as duas lentes e leva
+    // ate o lugar dela — quem digitou o numero quer a carta, nao o filtro.
+    if (!hit && (view !== "full" || raridades)) {
       const noCompleto = findCardPage(posicoes, n, rows, columns);
       if (noCompleto) {
         setView("full");
+        trocarRaridades(null);
         hit = noCompleto;
       }
     }
@@ -405,7 +559,7 @@ export default function Binder({
    */
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
-      if (aberta || finding) return;
+      if (aberta || finding || escolhendoRaridades) return;
       const alvo = e.target as HTMLElement | null;
       if (alvo && (alvo.tagName === "INPUT" || alvo.tagName === "TEXTAREA" || alvo.isContentEditable)) {
         return;
@@ -443,8 +597,43 @@ export default function Binder({
 
   const completa = stats.missing === 0;
 
+  /**
+   * A folha desta tela. Sao sempre as mesmas quatro — o que muda e se elas saem
+   * de uma colecao ou do fichario montado inteiro.
+   */
+  const folhaDe = (lista?: "estrelas") => {
+    const base =
+      origem.tipo === "colecao"
+        ? `/api/pdf/${origem.setId}`
+        : `/api/pdf/fichario/${origem.id}`;
+    return lista ? `${base}?lista=${lista}` : base;
+  };
+
+  /**
+   * Desfazer o fichario montado. Dois toques, e o segundo diz o que continua
+   * existindo: a crianca precisa saber que nao vai perder as cartas marcadas —
+   * elas nunca foram do fichario, sempre foram da colecao.
+   */
+  const desfazer = async () => {
+    if (origem.tipo !== "montado") return;
+    if (!confirmandoDesfazer) {
+      setConfirmandoDesfazer(true);
+      setTimeout(() => setConfirmandoDesfazer(false), 6000);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/fichario?id=${origem.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      router.push("/");
+      router.refresh();
+    } catch {
+      setConfirmandoDesfazer(false);
+      avisarFalha();
+    }
+  };
+
   /** So a grade, sem rotulo nem botao: e o que a folha em movimento precisa mostrar. */
-  const gradeDaPagina = (page: (SlotItem | null)[]) => (
+  const gradeDaPagina = (page: (Posicao | null)[]) => (
     <div
       className="pointer-events-none grid gap-2 sm:gap-2.5"
       style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
@@ -454,7 +643,7 @@ export default function Binder({
         <CardSlot
           key={item ? chave(item) : `folha-${slot}`}
           item={item}
-          setId={setId}
+          setId={item?.setId ?? ""}
           owned={item ? owned.has(chave(item)) : false}
           highlighted={false}
           starred={item ? starred.has(chave(item)) : false}
@@ -468,12 +657,16 @@ export default function Binder({
   );
 
   const renderPage = (
-    page: (SlotItem | null)[],
+    page: (Posicao | null)[],
     pageNumber: number | null,
     ref?: React.RefObject<HTMLDivElement | null>,
   ) => {
-    const present = page.filter(Boolean) as SlotItem[];
+    const present = page.filter(Boolean) as Posicao[];
     const allOwned = present.length > 0 && present.every((i) => owned.has(chave(i)));
+    // Num fichario montado, o rodape da pagina diz de que colecao ela e. A
+    // pagina nunca mistura duas (ver `generateSlotsByGroup`), entao o nome do
+    // primeiro bolso vale para a pagina inteira.
+    const colecaoDaPagina = varias ? present[0]?.setName : undefined;
 
     return (
       <div className="flex-1 sm:px-5 sm:first:pl-0 sm:last:pr-0">
@@ -486,7 +679,7 @@ export default function Binder({
             <CardSlot
               key={item ? chave(item) : `vazio-${pageNumber}-${slot}`}
               item={item}
-              setId={setId}
+              setId={item?.setId ?? ""}
               owned={item ? owned.has(chave(item)) : false}
               highlighted={item ? chave(item) === highlight : false}
               numberWidth={numberWidth}
@@ -500,8 +693,9 @@ export default function Binder({
 
         {/* min-h fixa: sem ela, o lado em branco fica mais curto e desalinha o vinco. */}
         <div className="mt-3 flex min-h-11 items-center justify-between gap-3">
-          <span className="tabular text-sm text-(--color-tinta-fraca)">
+          <span className="tabular min-w-0 truncate text-sm text-(--color-tinta-fraca)">
             {pageNumber !== null ? `página ${pageNumber}` : ""}
+            {pageNumber !== null && colecaoDaPagina ? ` · ${colecaoDaPagina}` : ""}
           </span>
           {present.length > 0 && view === "full" && (
             <button
@@ -533,8 +727,15 @@ export default function Binder({
             ‹ Coleções
           </Link>
           <h1 className="mt-0.5 truncate text-2xl font-semibold tracking-tight sm:text-3xl">
-            {setName}
+            {titulo}
           </h1>
+          {/* Quais colecoes estao aqui dentro, na ordem das folhas. E a unica
+              coisa que o nome do fichario nao consegue dizer sozinho. */}
+          {varias && (
+            <p className="mt-0.5 truncate text-sm text-(--color-tinta-fraca)">
+              {colecoes.map((c) => c.setName).join(" · ")}
+            </p>
+          )}
         </div>
 
         <p className="tabular shrink-0 text-right">
@@ -560,15 +761,19 @@ export default function Binder({
         bolsos vazios ali nao explicaria nada — e o caso de "o que falta" vazio e
         justamente o momento de maior orgulho do app.
       */}
-      {naPagina.length === 0 && view !== "full" ? (
+      {naPagina.length === 0 ? (
         <div className="rounded-3xl bg-(--color-folha) px-6 py-16 text-center shadow-sm ring-1 ring-black/5">
           {view === "missing" ? (
             <>
               <p className="text-2xl font-semibold text-(--color-tenho)">
-                Não falta nenhuma carta!
+                {rotuloRaridades
+                  ? `Não falta nenhuma: ${rotuloRaridades.toLowerCase()}!`
+                  : "Não falta nenhuma carta!"}
               </p>
               <p className="mt-2 text-(--color-tinta-fraca)">
-                Essa coleção está completa.
+                {rotuloRaridades
+                  ? "Você já tem todas as cartas dessas raridades."
+                  : "Essa coleção está completa."}
               </p>
             </>
           ) : view === "star" ? (
@@ -585,16 +790,25 @@ export default function Binder({
             </>
           ) : (
             <>
-              <p className="text-xl font-semibold">Você ainda não marcou nenhuma carta</p>
+              <p className="text-xl font-semibold">
+                {rotuloRaridades && view === "mine"
+                  ? "Você ainda não tem nenhuma dessas"
+                  : "Você ainda não marcou nenhuma carta"}
+              </p>
               <p className="mt-2 text-(--color-tinta-fraca)">
                 Vá em <strong className="font-medium text-(--color-tinta)">Total</strong> e
                 toque duas vezes nas cartas que você já tem.
               </p>
             </>
           )}
+          {/* Uma saida so, que desfaz as DUAS lentes: quem chegou a um fichario
+              vazio nao precisa descobrir qual delas o trouxe ate aqui. */}
           <button
             type="button"
-            onClick={() => setView("full")}
+            onClick={() => {
+              setView("full");
+              trocarRaridades(null);
+            }}
             className="mt-6 min-h-12 rounded-full bg-(--color-tinta) px-6 text-base font-semibold text-(--color-mesa)"
           >
             Ver o fichário completo
@@ -762,6 +976,39 @@ export default function Binder({
           value={sortRule}
           onChange={(v) => applySort(v as SortRule)}
         />
+        {/*
+          O filtro de raridade mora atras de um botao, e nao num quarto
+          interruptor: sao ate 8 raridades, e a fileira ja tem tres. Com filtro
+          ligado o botao passa a dizer QUAL lente esta na frente — "raridades"
+          nao contaria o que mudou no fichario — e ganha o × que a desfaz.
+        */}
+        <div
+          className={`inline-flex items-center rounded-full shadow-sm ring-1 ring-black/5 ${
+            rotuloRaridades
+              ? "bg-(--color-tinta) text-(--color-mesa)"
+              : "bg-(--color-folha)"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => setEscolhendoRaridades(true)}
+            className="inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-sm font-medium"
+          >
+            <IconeRaridade /> {rotuloRaridades ?? "raridades"}
+          </button>
+          {rotuloRaridades && (
+            <button
+              type="button"
+              onClick={() => trocarRaridades(null)}
+              aria-label="Ver todas as raridades"
+              title="Ver todas as raridades"
+              className="min-h-11 rounded-full pr-3.5 pl-1 text-lg leading-none"
+            >
+              ×
+            </button>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={() => setFinding(true)}
@@ -782,7 +1029,9 @@ export default function Binder({
       <section className="mt-8 border-t border-(--color-vinco) pt-6">
         {completa ? (
           <p className="text-center text-lg font-medium text-(--color-tenho)">
-            Coleção completa — não falta nenhuma carta.
+            {varias
+              ? "Fichário completo — não falta nenhuma carta."
+              : "Coleção completa — não falta nenhuma carta."}
           </p>
         ) : (
           <>
@@ -791,8 +1040,8 @@ export default function Binder({
                 titulo="As que faltam"
                 subtitulo={`${stats.missing} ${
                   stats.missing === 1 ? "carta que falta" : "cartas que faltam"
-                } nesta coleção`}
-                href={`/api/pdf/${setId}`}
+                } ${varias ? "neste fichário" : "nesta coleção"}`}
+                href={folhaDe()}
                 quantidade={missing.length}
               />
 
@@ -806,7 +1055,7 @@ export default function Binder({
                 subtitulo={`${estrelasFaltando.length} ${
                   estrelasFaltando.length === 1 ? "carta marcada" : "cartas marcadas"
                 } com estrela, que ainda faltam`}
-                href={`/api/pdf/${setId}?lista=estrelas`}
+                href={folhaDe("estrelas")}
                 quantidade={estrelasFaltando.length}
                 estrela
                 vazio="Toque três vezes numa carta para marcar ★"
@@ -821,16 +1070,44 @@ export default function Binder({
         )}
       </section>
 
+      {origem.tipo === "montado" && (
+        <section className="mt-8 border-t border-(--color-vinco) pt-6 text-center">
+          <button
+            type="button"
+            onClick={desfazer}
+            className={`min-h-11 rounded-full px-5 text-sm font-medium ${
+              confirmandoDesfazer
+                ? "bg-(--color-tinta) text-(--color-mesa)"
+                : "text-(--color-tinta-fraca) hover:text-(--color-tinta)"
+            }`}
+          >
+            {confirmandoDesfazer ? "Tocar de novo para desfazer" : "Desfazer este fichário"}
+          </button>
+          <p className="mt-1.5 text-xs text-(--color-tinta-fraca)">
+            As coleções continuam onde estão, com tudo o que você já marcou.
+          </p>
+        </section>
+      )}
+
       {aberta && (
         <CardViewer
           item={aberta}
-          setId={setId}
+          setId={aberta.setId}
           owned={owned.has(chave(aberta))}
           starred={starred.has(chave(aberta))}
           numberWidth={numberWidth}
           onToggle={toggle}
           onToggleStar={toggleStar}
           onClose={() => setAberta(null)}
+        />
+      )}
+
+      {escolhendoRaridades && (
+        <Raridades
+          contagens={contagens}
+          selecionadas={raridades}
+          onChange={trocarRaridades}
+          onClose={() => setEscolhendoRaridades(false)}
         />
       )}
 
@@ -881,6 +1158,20 @@ function Switch({
         </button>
       ))}
     </div>
+  );
+}
+
+/** Um losango: o simbolo que a propria carta usa para dizer a raridade. */
+function IconeRaridade() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M8 1.8l6.2 6.2L8 14.2 1.8 8 8 1.8z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

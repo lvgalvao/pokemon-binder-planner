@@ -61,10 +61,11 @@ virou Node porque `sharp` já é dependência (dispensa venv e Pillow) e porque 
 fala uma fonte só. A saída é a mesma da spec §2 e §5 — `tests/manifests.test.ts` cobre a forma.
 
 **Sem ORM.** Postgres no Supabase, com RLS, acessado pelo cliente `supabase-js` (`lib/db.ts`).
-Três tabelas, só estado do usuário: `binder` (layout e ordem por coleção), `owned_card` (presença
-da linha = possui) e `starred_card` (presença da linha = quero muito). Nasceu em `node:sqlite`
+Quatro tabelas, só estado do usuário: `binder` (layout e ordem por coleção), `owned_card` (presença
+da linha = possui), `starred_card` (presença da linha = quero muito) e `binder_group` (um fichário
+que junta várias coleções: nome, `set_ids` na ordem das folhas, layout e ordem). Nasceu em `node:sqlite`
 local e migrou para ter dono e sobreviver ao aparelho; o PRD sugeria Prisma, que exigiria
-`prisma.config.ts` mais driver adapter — mais peça móvel que problema resolvido para três tabelas.
+`prisma.config.ts` mais driver adapter — mais peça móvel que problema resolvido para quatro tabelas.
 
 **Toda consulta recebe `userId` explícito**, em vez de ir buscar a sessão por dentro. É o que
 deixa "sem sessão = fichário vazio" visível em cada chamada — e este app abre sem sessão de
@@ -113,6 +114,26 @@ público `cards` no Supabase Storage, em dois derivados por carta (`web/` 400w W
 `print/` para o PDF e a tela cheia — `lib/assets.ts`, gerados por `tools/upload-assets.mjs`).
 Nenhum dos dois passa pelo otimizador da Vercel: já saem no tamanho certo, e 4.749 cartas
 estourariam a cota de transformações sozinhas.
+
+**Um fichário pode juntar várias coleções.** `binder_group` guarda a montagem (nome + `set_ids` na
+ordem), e `/fichario/<id>` renderiza o MESMO `<Binder>` da coleção — ele recebe `colecoes: []` e uma
+`origem` (`{tipo:"colecao"}` ou `{tipo:"montado"}`), e a coleção avulsa é o caso de uma coleção só.
+Dentro dele, o setId deixa de ser propriedade da tela e passa a ser do BOLSO (`Posicao = SlotItem +
+setId + setName`): é ele que decide o selo da variante, contra qual manifest a marcação é validada
+(um POST por coleção) e onde a próxima coleção começa. **Cada coleção começa numa página nova** —
+`generateSlotsByGroup` em `lib/binder.ts`, testada — porque no fichário físico não se começa a
+coleção seguinte no meio de uma folha: a numeração reiniciaria no meio da página. A ordenação
+acontece DENTRO de cada coleção, nunca no fichário inteiro; juntar é pôr em sequência, não
+embaralhar. Desfazer o agrupamento (`DELETE /api/fichario`) **não toca em posse nem em estrela**: as
+cartas sempre foram da coleção.
+
+**Filtro de raridade é lente, não estado.** O painel (`components/Raridades.tsx`, botão "raridades"
+no rodapé) filtra os bolsos por bucket e compõe com os quatro olhares — "só as especiais" + "o que
+falta" dá o que falta entre as especiais. **Não é persistido** e **não muda as quatro folhas**: é
+algo que a criança pega e larga, e um PDF que mudasse conforme um controle lá em cima seria surpresa
+na hora de imprimir. Especial é definido por exclusão (`bucketEspecial`: o que não é comum, incomum
+ou rara), então uma raridade nova entra sozinha; o atalho só aparece onde separa alguma coisa
+(`atalhoEspeciaisSeparaAlgo`) — na coleção só de promos ele daria o mesmo que "todas".
 
 ## Armadilhas reais deste código
 
@@ -226,6 +247,11 @@ iça qualquer `@theme` para o topo, e a paleta escura passa a valer sempre.
 - **As cartas são o colorido; a interface é silenciosa.** Neutros quentes e dois acentos, um por
   pergunta: verde (`--color-tenho`) responde "já tenho", dourado (`--color-estrela`) responde
   "quero muito". Não há um terceiro.
+- **Juntar coleções acontece na tela inicial**, não dentro do fichário: `+ juntar coleções num
+  fichário` leva a uma grade de capas onde o toque NUMERA (1, 2, 3) em vez de abrir — a ordem é o
+  dado, é a sequência em que elas se sucedem nas folhas. Tocar de novo tira, e as seguintes se
+  renumeram; não há arrastar. O nome vem pronto ("Fichário " + a primeira coleção) e é editável. Os
+  fichários montados ficam acima das coleções, com as capas em leque.
 - **Sem drag-and-drop** (as posições são derivadas). Reintroduzir é aditivo: uma tabela
   `slot_overrides` aplicada por cima de `generateSlots`, não uma reescrita.
 - **Número de páginas é calculado**, nunca perguntado — o que elimina junto o caso "a coleção

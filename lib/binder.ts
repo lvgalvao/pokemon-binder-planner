@@ -79,3 +79,30 @@ export function findCardPage<T extends { card: Card }>(
     item: sorted[index],
   };
 }
+
+/**
+ * O mesmo, mas respeitando a fronteira entre colecoes: cada colecao comeca numa
+ * pagina nova, e a ultima pagina dela fica com os bolsos que sobram vazios.
+ *
+ * E o que a crianca faz com o fichario fisico quando junta varias colecoes na
+ * mesma pasta: nao se comeca a colecao seguinte no meio de uma folha, senao a
+ * numeracao reinicia no meio da pagina e nao da para saber onde uma acaba. O
+ * preco sao alguns bolsos vazios na virada — que e exatamente o que ha na mesa.
+ */
+export function generateSlotsByGroup<T>(
+  sortedItems: readonly T[],
+  rows: number,
+  columns: number,
+  grupoDe: (item: T) => string,
+): (T | null)[][] {
+  const pages: (T | null)[][] = [];
+  let inicio = 0;
+  while (inicio < sortedItems.length) {
+    const grupo = grupoDe(sortedItems[inicio]);
+    let fim = inicio + 1;
+    while (fim < sortedItems.length && grupoDe(sortedItems[fim]) === grupo) fim++;
+    pages.push(...generateSlots(sortedItems.slice(inicio, fim), rows, columns));
+    inicio = fim;
+  }
+  return pages;
+}

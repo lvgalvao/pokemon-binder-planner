@@ -215,3 +215,143 @@ export async function ownedCountBySet(userId: string | null): Promise<Map<string
 
   return new Map((data ?? []).map((r) => [r.set_id, Number(r.n)]));
 }
+
+/**
+ * Um fichario montado: varias colecoes numa sequencia so.
+ *
+ * A ordem de `setIds` E o fichario — e a ordem em que as colecoes se sucedem nas
+ * folhas. Layout e ordenacao vivem aqui pelo mesmo motivo que vivem em `binder`:
+ * sao escolhas sobre a pasta fisica, nao sobre as cartas.
+ */
+export type Fichario = {
+  id: string;
+  nome: string;
+  setIds: string[];
+} & Layout & { sortRule: SortRule };
+
+/** Quantas colecoes cabem num fichario montado — o mesmo teto do check da tabela. */
+export const MIN_COLECOES_NO_FICHARIO = 2;
+export const MAX_COLECOES_NO_FICHARIO = 12;
+
+type LinhaDeFichario = {
+  id: string;
+  nome: string;
+  set_ids: string[];
+  rows: number;
+  columns: number;
+  sort_rule: string;
+};
+
+function paraFichario(linha: LinhaDeFichario): Fichario {
+  // Mesma defesa de getBinder: uma combinacao que nao existe mais cai no padrao
+  // em vez de renderizar um fichario que nenhum botao consegue selecionar.
+  const conhecido = LAYOUTS[layoutKey(linha.columns, linha.rows)] ?? LAYOUTS["3x3"];
+  return {
+    id: linha.id,
+    nome: linha.nome,
+    setIds: linha.set_ids,
+    rows: conhecido.rows,
+    columns: conhecido.columns,
+    sortRule: linha.sort_rule === "rarity" ? "rarity" : "number",
+  };
+}
+
+const CAMPOS_DO_FICHARIO = "id, nome, set_ids, rows, columns, sort_rule";
+
+/** Os ficharios montados, do mais antigo para o mais novo — a ordem em que ele os fez. */
+export async function listarFicharios(userId: string | null): Promise<Fichario[]> {
+  if (!userId) return [];
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("binder_group")
+    .select(CAMPOS_DO_FICHARIO)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw new Error(`listarFicharios: ${error.message}`);
+  return data.map(paraFichario);
+}
+
+export async function getFichario(
+  userId: string | null,
+  id: string,
+): Promise<Fichario | null> {
+  if (!userId) return null;
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("binder_group")
+    .select(CAMPOS_DO_FICHARIO)
+    .eq("user_id", userId)
+    .eq("id", id)
+    .maybeSingle();
+
+  // Um id que nao e uuid faz o Postgres reclamar de sintaxe (22P02). Isso e uma
+  // URL digitada errada, nao uma falha: vira 404 como qualquer fichario que nao
+  // existe, em vez de derrubar a pagina.
+  if (error) {
+    if (error.code === "22P02") return null;
+    throw new Error(`getFichario(${id}): ${error.message}`);
+  }
+  return data ? paraFichario(data) : null;
+}
+
+export async function criarFichario(
+  userId: string,
+  nome: string,
+  setIds: readonly string[],
+): Promise<Fichario> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("binder_group")
+    .insert({ user_id: userId, nome, set_ids: setIds as string[] })
+    .select(CAMPOS_DO_FICHARIO)
+    .single();
+
+  if (error) throw new Error(`criarFichario: ${error.message}`);
+  return paraFichario(data);
+}
+
+export async function updateFichario(
+  userId: string,
+  id: string,
+  patch: Partial<Layout & { sortRule: SortRule }>,
+): Promise<void> {
+  const supabase = await createClient();
+  const campos: { rows?: number; columns?: number; sort_rule?: SortRule } = {};
+  if (patch.rows !== undefined) campos.rows = patch.rows;
+  if (patch.columns !== undefined) campos.columns = patch.columns;
+  if (patch.sortRule !== undefined) campos.sort_rule = patch.sortRule;
+  if (Object.keys(campos).length === 0) return;
+
+  // Update e nao upsert: a linha ja existe — o fichario montado, ao contrario do
+  // da colecao, nasce de um gesto explicito. `eq(user_id)` alem da RLS para que
+  // um id de outra pessoa nao vire um update de zero linhas silencioso.
+  const { error } = await supabase
+    .from("binder_group")
+    .update(campos)
+    .eq("user_id", userId)
+    .eq("id", id);
+
+  if (error) throw new Error(`updateFichario(${id}): ${error.message}`);
+}
+
+/**
+ * Desfaz o agrupamento. NAO toca em posse nem em estrela: as cartas sempre foram
+ * da colecao, e o fichario montado era so a ordem em que elas apareciam juntas.
+ */
+export async function apagarFichario(userId: string, id: string): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("binder_group")
+    .delete()
+    .eq("user_id", userId)
+    .eq("id", id);
+
+  // 22P02 = o id nem e um uuid. Nao existe fichario com esse id, entao apagar
+  // "ja esta feito" — mesma leitura de getFichario.
+  if (error && error.code !== "22P02") {
+    throw new Error(`apagarFichario(${id}): ${error.message}`);
+  }
+}
