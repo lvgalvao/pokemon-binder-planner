@@ -629,34 +629,71 @@ export async function getArranjo(
   };
 }
 
-/** Grava o arranjo inteiro. O estado da tela E o corpo do pedido. */
+/**
+ * Grava o arranjo inteiro. O estado da tela E o corpo do pedido.
+ *
+ * UPDATE e depois INSERT, e nao `upsert`: os indices unicos da tabela sao
+ * PARCIAIS (`where set_id is not null`, e o espelho para `group_id`), porque a
+ * coluna do outro alvo e sempre NULL e um unique comum trataria dois NULLs como
+ * distintos — deixando passar duas linhas para o mesmo fichario. E `ON CONFLICT`
+ * com lista de colunas nao casa com indice parcial: o Postgres responde "there
+ * is no unique or exclusion constraint matching the ON CONFLICT specification".
+ *
+ * O caso comum e o UPDATE — arrumar e reescrever o arranjo que ja existe — entao
+ * a viagem extra so acontece na primeira gravacao de cada formato.
+ */
 export async function salvarArranjo(
   userId: string,
   alvo: Alvo,
   layout: Layout,
   arranjo: Arranjo,
+  primeiraTentativa = true,
 ): Promise<void> {
   const supabase = await createClient();
-  const { error } = await supabase.from("binder_arranjo").upsert(
-    {
-      user_id: userId,
-      ...colunasDoAlvo(alvo),
-      rows: layout.rows,
-      columns: layout.columns,
-      bolsos: arranjo.bolsos as unknown as string[],
-      fora: arranjo.fora,
-      mao: arranjo.mao,
-      atualizado_em: new Date().toISOString(),
-    },
-    {
-      onConflict:
-        alvo.tipo === "colecao"
-          ? "user_id,set_id,rows,columns"
-          : "user_id,group_id,rows,columns",
-    },
-  );
+  const campos = {
+    bolsos: arranjo.bolsos as unknown as string[],
+    fora: arranjo.fora,
+    mao: arranjo.mao,
+    atualizado_em: new Date().toISOString(),
+  };
+
+  let q = supabase
+    .from("binder_arranjo")
+    .update(campos)
+    .eq("user_id", userId)
+    .eq("rows", layout.rows)
+    // `columns` NAO pode ir como `.eq()` aqui: numa escrita, `columns` e
+    // parametro RESERVADO do PostgREST (a lista de colunas do corpo), entao
+    // `?columns=eq.3` e lido como "a coluna chamada eq" e o pedido morre com
+    // "Could not find the 'eq' column". Dentro de `or=(...)` o nome viaja no
+    // valor e nao na chave — e com um termo so o efeito e o mesmo de um AND.
+    // No SELECT de `getArranjo` isso nao acontece: la `columns` nao e reservado.
+    .or(`columns.eq.${layout.columns}`);
+  q = alvo.tipo === "colecao" ? q.eq("set_id", alvo.setId) : q.eq("group_id", alvo.id);
+
+  // `select` depois do update: sem ele o PostgREST nao diz quantas linhas mexeu,
+  // e e exatamente isso que decide se ainda falta inserir.
+  const { data, error } = await q.select("user_id");
 
   if (error) throw new Error(`salvarArranjo: ${error.message}`);
+  if (data.length > 0) return;
+
+  const { error: erroDoInsert } = await supabase.from("binder_arranjo").insert({
+    user_id: userId,
+    ...colunasDoAlvo(alvo),
+    rows: layout.rows,
+    columns: layout.columns,
+    ...campos,
+  });
+
+  if (!erroDoInsert) return;
+  // 23505: outra gravacao criou a linha entre o update e o insert. Agora ela
+  // existe, entao o update encontra — e a ultima gravacao e a que vale. Uma
+  // tentativa so: se falhar de novo, e outra coisa.
+  if (erroDoInsert.code === "23505" && primeiraTentativa) {
+    return salvarArranjo(userId, alvo, layout, arranjo, false);
+  }
+  throw new Error(`salvarArranjo: ${erroDoInsert.message}`);
 }
 
 /**

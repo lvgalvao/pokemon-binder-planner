@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
-import { getManifest } from "@/lib/manifests";
+import { findPosicao, getManifest, listSets, posicoesDoSet } from "@/lib/manifests";
 import {
+  getArranjo,
   getFichario,
   listarListas,
   ownedIdsDeSets,
   starredComLista,
 } from "@/lib/db";
+import { resolver } from "@/lib/arranjo";
 import { getUserId } from "@/lib/session";
 import Binder from "@/components/Binder";
 
@@ -46,6 +48,19 @@ export default async function FicharioPage({
     listarListas(userId),
   ]);
 
+  // O universo do fichario montado sao as colecoes EM SERIE, na ordem das
+  // folhas — a mesma sequencia que a tela deriva, porque e contra ela que a
+  // cauda da reconciliacao e ordenada.
+  const alvo = { tipo: "montado", id: fichario.id } as const;
+  const gravado = await getArranjo(userId, alvo, fichario);
+  const arranjo = gravado
+    ? resolver(
+        gravado,
+        setIds.flatMap((s) => posicoesDoSet(s, fichario.sortRule)),
+        findPosicao,
+      )
+    : null;
+
   return (
     <Binder
       titulo={fichario.nome}
@@ -57,6 +72,8 @@ export default async function FicharioPage({
       initialRows={fichario.rows}
       initialColumns={fichario.columns}
       initialSortRule={fichario.sortRule}
+      arranjo={arranjo}
+      catalogo={listSets()}
     />
   );
 }

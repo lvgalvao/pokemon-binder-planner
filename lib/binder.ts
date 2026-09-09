@@ -74,12 +74,15 @@ export function findCardPage<T extends { card: Card }>(
   columns: number,
 ): { page: number; slot: number; item: T } | null {
   const index = sorted.findIndex((i) => i !== null && cardNumber(i.card) === n);
-  if (index < 0) return null;
+  const item = index < 0 ? null : sorted[index];
+  // O `item` nunca e nulo aqui — o findIndex ja recusou os bolsos vazios — mas e
+  // isto, e nao um `!`, que diz isso ao compilador sem calar um erro de verdade.
+  if (item === null || item === undefined) return null;
   const perPage = rows * columns;
   return {
     page: Math.floor(index / perPage),
     slot: index % perPage,
-    item: sorted[index],
+    item,
   };
 }
 

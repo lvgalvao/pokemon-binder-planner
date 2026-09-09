@@ -12,7 +12,7 @@ import {
   findCardPage,
 } from "@/lib/binder";
 import {
-  congelar,
+  congelarEstado,
   chaveDe,
   puxar,
   serializar,
@@ -200,7 +200,13 @@ export default function Binder({
       ? { bolsos: arranjoInicial.bolsos, fora: arranjoInicial.fora, mao: arranjoInicial.mao }
       : null,
   );
-  const [arrumando, setArrumando] = useState(false);
+  /**
+   * Comeca ligado quando ha carta na mao gravada: ele recarregou no meio de uma
+   * troca, e a continuacao exata de onde parou e a mao ainda cheia. Fora do modo
+   * a carta nao apareceria em canto nenhum — nem no bolso, nem na faixa — e o
+   * fichario pareceria ter comido uma carta.
+   */
+  const [arrumando, setArrumando] = useState(arranjoInicial?.mao != null);
   const [gaveta, setGaveta] = useState(false);
   /** De onde a carta na mao saiu — so nesta sessao, para o bolso se marcar. */
   const [origemDaMao, setOrigemDaMao] = useState<number | null>(null);
@@ -376,6 +382,22 @@ export default function Binder({
           ),
     [arranjo, naPagina, rows, columns],
   );
+  /**
+   * As folhas SEM lente nenhuma — o fichario como ele e, e nao como se esta
+   * olhando para ele agora.
+   *
+   * E o que entra no modo arrumar: congelar a partir de `pages` guardaria o
+   * fichario filtrado, e entrar no modo estando em "o que falta" apagaria de uma
+   * vez todas as cartas que ele ja tem.
+   */
+  const paginasSemLente = useMemo(
+    () =>
+      arranjo
+        ? generateSlots(arranjo.bolsos, rows, columns)
+        : generateSlotsByGroup(automaticas, rows, columns, (i) => i.setId),
+    [arranjo, automaticas, rows, columns],
+  );
+
   const missing = useMemo(() => missingCards(posicoes, owned, chave), [posicoes, owned]);
   /** As estrelas que ainda faltam — as unicas que precisam de recorte. */
   const estrelasFaltando = useMemo(
@@ -619,6 +641,254 @@ export default function Binder({
     [owned, persistOwned],
   );
 
+  // ------------------------------------------------------------ modo arrumar
+  //
+  // O gesto e um so — "a carta do bolso vai para a sua mao; a da sua mao fica
+  // nele" — e dele saem pegar, colocar, trocar e devolver sem nenhum modo
+  // escondido. `lib/arranjo.ts` tem as transicoes; aqui e a costura com a tela.
+
+  /**
+   * A gravacao do arranjo e COALESCIDA: uma rajada de toques vira um POST so.
+   *
+   * O corpo e o estado inteiro, e nao o gesto (ver `/api/arranjo`), entao a
+   * ultima gravacao sempre esta certa — e por isso da para simplesmente esperar
+   * a mao parar. Sem isto, arrumar uma pagina mandaria trinta pedidos com o
+   * fichario inteiro em cada um.
+   */
+  const ATRASO_DA_GRAVACAO = 700;
+  const arranjoPendente = useRef<Estado<Posicao> | null>(null);
+  const timerDoArranjo = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const enviarArranjo = useCallback(() => {
+    const estado = arranjoPendente.current;
+    if (!estado) return;
+    arranjoPendente.current = null;
+
+    // Os vazios do FIM sao a sobra da ultima folha, nao bolso reservado — a
+    // mesma distincao que `congelar` faz. Sem aparar, cada troca perto do fim
+    // engordaria o array gravado com nulos que ninguem escolheu.
+    const bolsos = [...estado.bolsos];
+    while (bolsos.length > 0 && bolsos[bolsos.length - 1] === null) bolsos.pop();
+    const corpo = serializar({ ...estado, bolsos }, chaveDe);
+    void enfileirar(async () => {
+      const res = await fetch("/api/arranjo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(origem.tipo === "colecao"
+            ? { setId: origem.setId }
+            : { ficharioId: origem.id }),
+          // O arranjo e de UMA folha: 3x3 e 4x3 sao dois desenhos diferentes.
+          layout: layoutKey(columns, rows),
+          ...corpo,
+        }),
+      });
+      if (!res.ok) throw new Error();
+    }).catch(avisarFalha);
+  }, [origem, columns, rows, avisarFalha]);
+
+  const gravarArranjo = useCallback(
+    (estado: Estado<Posicao>) => {
+      arranjoPendente.current = estado;
+      if (timerDoArranjo.current) clearTimeout(timerDoArranjo.current);
+      timerDoArranjo.current = setTimeout(enviarArranjo, ATRASO_DA_GRAVACAO);
+    },
+    [enviarArranjo],
+  );
+
+  /**
+   * O que estiver pendente vai embora ao sair da tela.
+   *
+   * Nao e detalhe: a espera de 700 ms cabe inteira dentro de um toque em
+   * "‹ Coleções", e sem isto o ultimo gesto — justamente o que ele acabou de
+   * fazer — seria o unico a nao ser gravado. Mesma razao do `marcacaoPendente`
+   * do CardSlot.
+   */
+  useEffect(
+    () => () => {
+      if (timerDoArranjo.current) clearTimeout(timerDoArranjo.current);
+      enviarArranjo();
+    },
+    [enviarArranjo],
+  );
+
+  /**
+   * O servidor mandou outro arranjo — trocou o formato da folha, ou ele voltou
+   * ao automatico. So vale FORA do modo: no meio de um gesto, uma revalidacao
+   * (a que nasce ao criar a primeira lista de desejos, por exemplo) atropelaria
+   * a carta que esta na mao.
+   */
+  useEffect(() => {
+    if (arrumando) return;
+    setArranjo(
+      arranjoInicial
+        ? {
+            bolsos: arranjoInicial.bolsos,
+            fora: arranjoInicial.fora,
+            mao: arranjoInicial.mao,
+          }
+        : null,
+    );
+    setOrigemDaMao(null);
+    setAvisoDaCauda(arranjoInicial?.relatorio.acrescentadas ?? 0);
+    // `arrumando` de proposito fora das dependencias: o efeito reage ao arranjo
+    // que chegou, e so consulta o modo para decidir se e hora de aceita-lo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arranjoInicial]);
+
+  /**
+   * Ele mexeu em alguma coisa nesta visita? E o que separa "arrumou" de "abriu
+   * o modo para ver como e" — ver `sairDoModo`.
+   */
+  const mexeuNoArranjo = useRef(false);
+
+  /** Muda a tela e agenda a gravacao — todo gesto do modo passa por aqui. */
+  const aplicarArranjo = useCallback(
+    (proximo: Estado<Posicao>) => {
+      mexeuNoArranjo.current = true;
+      setArranjo(proximo);
+      gravarArranjo(proximo);
+    },
+    [gravarArranjo],
+  );
+
+  /**
+   * Entrar no modo CONGELA o fichario como ele esta — inclusive os bolsos vazios
+   * da fronteira entre colecoes. Nao grava nada ainda: entrar e sair sem mexer em
+   * nada tem de deixar o fichario automatico como estava, senao a curiosidade
+   * custaria um fichario "arrumado a mao" que ele nunca arrumou.
+   */
+  const entrarNoModo = () => {
+    if (!arranjo) setArranjo(congelarEstado(paginasSemLente));
+    setArrumando(true);
+  };
+
+  /**
+   * Guarda a carta que ficou na mao: no bolso de onde ela saiu, se ainda estiver
+   * vazio; senao no primeiro vazio; senao no fim.
+   *
+   * Sair com a carta na mao a faria sumir da tela normal, onde nao existe mao
+   * nenhuma. A coluna `mao` do banco continua existindo para o outro caso — o
+   * recarregar no meio de uma troca, que e acidente e nao gesto.
+   */
+  const guardarMao = (estado: Estado<Posicao>): Estado<Posicao> => {
+    if (estado.mao === null) return estado;
+    if (origemDaMao !== null && estado.bolsos[origemDaMao] === null) {
+      return tocar(estado, origemDaMao);
+    }
+    const vazio = estado.bolsos.indexOf(null);
+    if (vazio >= 0) return tocar(estado, vazio);
+    return { ...estado, bolsos: [...estado.bolsos, estado.mao], mao: null };
+  };
+
+  const sairDoModo = () => {
+    setGaveta(false);
+    setConfirmandoAutomatico(false);
+    setArrumando(false);
+    setOrigemDaMao(null);
+
+    if (arranjo?.mao) {
+      aplicarArranjo(guardarMao(arranjo));
+      return;
+    }
+    // Entrou, olhou e saiu: o congelamento vai embora com ele. Ficar com um
+    // arranjo em memoria que nunca foi gravado deixaria a tela diferente da que
+    // um F5 traria — e, pior, mudaria a lente por baixo: arrumado a mao "o que
+    // falta" APAGA os bolsos no lugar, e automatico ele compacta.
+    if (!mexeuNoArranjo.current && !arranjoInicial) setArranjo(null);
+  };
+
+  /**
+   * O gesto, na tela: tocar num bolso. `i` e o indice no fichario inteiro, nao
+   * na pagina — o arranjo e uma sequencia so, e a pagina e recorte dela.
+   */
+  const tocarBolso = (i: number) => {
+    if (!arranjo) return;
+
+    // A ultima folha tem bolsos ALEM do fim do arranjo — a sobra da paginacao.
+    // Eles estao na tela, entao sao bolsos de verdade: com a mao cheia, o
+    // fichario cresce ate ali em vez de o toque nao fazer nada. Sem isto, os
+    // ultimos bolsos da ultima pagina seriam os unicos onde nao da para guardar
+    // uma carta, e nada explicaria por que.
+    const base =
+      i < arranjo.bolsos.length
+        ? arranjo
+        : arranjo.mao === null
+          ? arranjo
+          : {
+              ...arranjo,
+              bolsos: [
+                ...arranjo.bolsos,
+                ...Array<Posicao | null>(i - arranjo.bolsos.length + 1).fill(null),
+              ],
+            };
+
+    const proximo = tocar(base, i);
+    // A carta que acabou de ir para a mao veio DESTE bolso, seja ele o de uma
+    // troca ou o de um simples pegar. Mao vazia depois do gesto: nao ha origem.
+    setOrigemDaMao(proximo.mao === null ? null : i);
+    aplicarArranjo(proximo);
+  };
+
+  /** Devolver: volta ao bolso de onde saiu. Veio da gaveta, volta para a gaveta. */
+  const devolverMao = () => {
+    if (!arranjo?.mao) return;
+    if (origemDaMao !== null) return tocarBolso(origemDaMao);
+    aplicarArranjo(tirar(arranjo, universoKeys, chaveDe));
+    setOrigemDaMao(null);
+  };
+
+  const tirarDaMao = () => {
+    if (!arranjo?.mao) return;
+    aplicarArranjo(tirar(arranjo, universoKeys, chaveDe));
+    setOrigemDaMao(null);
+  };
+
+  /** Puxar da gaveta. Se a carta ja ocupa um bolso, e mudanca de lugar, nao copia. */
+  const puxarCarta = (item: Posicao) => {
+    if (!arranjo) return;
+    aplicarArranjo(puxar(arranjo, item, chaveDe));
+    setOrigemDaMao(null);
+  };
+
+  /**
+   * "Arrumar de novo": volta ao automatico, em dois toques.
+   *
+   * Apaga o arranjo de TODOS os formatos (ver `apagarArranjo`) e nao toca em
+   * posse nem em estrela — as cartas continuam marcadas, e e isso que a frase
+   * embaixo do botao promete.
+   */
+  const voltarAoAutomatico = async () => {
+    if (!confirmandoAutomatico) {
+      setConfirmandoAutomatico(true);
+      return;
+    }
+    setConfirmandoAutomatico(false);
+    // Cancela o que estava pendente: gravar depois do DELETE ressuscitaria
+    // exatamente o arranjo que ele acabou de mandar embora.
+    if (timerDoArranjo.current) clearTimeout(timerDoArranjo.current);
+    arranjoPendente.current = null;
+
+    setArranjo(null);
+    setArrumando(false);
+    setOrigemDaMao(null);
+    setGaveta(false);
+
+    const query =
+      origem.tipo === "colecao"
+        ? `setId=${encodeURIComponent(origem.setId)}`
+        : `ficharioId=${encodeURIComponent(origem.id)}`;
+    const res = await fetch(`/api/arranjo?${query}`, { method: "DELETE" });
+    if (!res.ok) return avisarFalha();
+    router.refresh();
+  };
+
+  /** As chaves que ja ocupam um bolso — a gaveta nao pode oferecer uma segunda. */
+  const jaNoFichario = useMemo(
+    () => new Set(bolsos.filter((b): b is Posicao => b !== null).map(chaveDe)),
+    [bolsos],
+  );
+
   /**
    * Mede a folha em pixels reais, em vez de chutar 50%.
    *
@@ -716,6 +986,19 @@ export default function Binder({
     setColumns(escolhido.columns);
     setSpread(0);
     saveBinder({ layout: key });
+
+    // Uma folha de 4 bolsos e outra folha: reflowar um arranjo de 3x3 para 4x3
+    // preservaria o dado e destruiria o desenho. A tela volta ao automatico e o
+    // servidor diz se ha um arranjo GRAVADO para este formato — e por isso
+    // voltar ao formato anterior restaura o que ele tinha arrumado la.
+    if (arranjo) {
+      if (timerDoArranjo.current) clearTimeout(timerDoArranjo.current);
+      enviarArranjo();
+      setArranjo(null);
+      setArrumando(false);
+      setOrigemDaMao(null);
+      router.refresh();
+    }
   };
 
   const applySort = (rule: SortRule) => {
@@ -870,20 +1153,31 @@ export default function Binder({
           className="grid gap-2 sm:gap-2.5"
           style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
         >
-          {page.map((item, slot) => (
-            <CardSlot
-              key={item ? chave(item) : `vazio-${pageNumber}-${slot}`}
-              item={item}
-              setId={item?.setId ?? ""}
-              owned={item ? owned.has(chave(item)) : false}
-              highlighted={item ? chave(item) === highlight : false}
-              numberWidth={numberWidth}
-              starred={item ? starred.has(chave(item)) : false}
-              onToggle={toggle}
-              onToggleStar={toggleStar}
-              onOpen={setAberta}
-            />
-          ))}
+          {page.map((item, slot) => {
+            // O indice do bolso no fichario INTEIRO: o arranjo e uma sequencia
+            // so, e a pagina e um recorte dela. `pageNumber` e 1-based e a
+            // pagina em branco do outro lado nao existe no arranjo (null).
+            const indice =
+              pageNumber === null ? null : (pageNumber - 1) * rows * columns + slot;
+            return (
+              <CardSlot
+                key={item ? chave(item) : `vazio-${pageNumber}-${slot}`}
+                item={item}
+                setId={item?.setId ?? ""}
+                owned={item ? owned.has(chave(item)) : false}
+                highlighted={item ? chave(item) === highlight : false}
+                numberWidth={numberWidth}
+                starred={item ? starred.has(chave(item)) : false}
+                onToggle={toggle}
+                onToggleStar={toggleStar}
+                onOpen={setAberta}
+                arrumando={arrumando && indice !== null}
+                origem={arrumando && indice !== null && indice === origemDaMao}
+                alvo={arrumando && arranjo?.mao != null}
+                onArrumar={indice === null ? undefined : () => tocarBolso(indice)}
+              />
+            );
+          })}
         </div>
 
         {/* min-h fixa: sem ela, o lado em branco fica mais curto e desalinha o vinco. */}
@@ -911,7 +1205,11 @@ export default function Binder({
   };
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-6xl flex-col px-4 pb-6 sm:px-7">
+    <main
+      className={`mx-auto flex min-h-dvh max-w-6xl flex-col px-4 sm:px-7 ${
+        arrumando && arranjo?.mao ? "pb-44" : "pb-6"
+      }`}
+    >
       {/* Cabecalho: so o numero que importa. */}
       <header className="flex items-baseline justify-between gap-4 pt-6 pb-5">
         <div className="min-w-0">
@@ -950,6 +1248,30 @@ export default function Binder({
           )}
         </p>
       </header>
+
+      {/*
+        O fichario arrumado a mao mudou sem ele pedir: cartas que ainda nao
+        estavam em lugar nenhum entraram no FIM (ver a regra 2 de `resolver`).
+        Repovoar uma colecao so acrescenta — as 49 promos que ainda dao 404 vao
+        chegar um dia — mas acrescentar em silencio faria o fichario crescer sem
+        explicacao. A linha e discreta e ele a dispensa com um toque.
+      */}
+      {arranjo && avisoDaCauda > 0 && (
+        <p className="mb-4 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-2xl bg-(--color-folha) px-4 py-2.5 text-center text-sm text-(--color-tinta-fraca) shadow-sm ring-1 ring-black/5">
+          <span>
+            {avisoDaCauda === 1
+              ? "1 carta nova entrou no fim do fichário."
+              : `${avisoDaCauda} cartas novas entraram no fim do fichário.`}
+          </span>
+          <button
+            type="button"
+            onClick={() => setAvisoDaCauda(0)}
+            className="min-h-9 rounded-full px-3 font-medium hover:text-(--color-tinta)"
+          >
+            ok
+          </button>
+        </p>
+      )}
 
       {/*
         Modos filtrados podem ficar sem nenhuma carta. Mostrar um fichario de
@@ -1010,7 +1332,7 @@ export default function Binder({
           </button>
         </div>
       ) : (
-      <div className="relative">
+      <div className={`relative ${arrumando ? "bancada p-2 sm:p-3" : ""}`}>
         {/*
           Virar pela borda da pagina. E o gesto do objeto real: pega-se a beirada
           da folha, nao um controle longe dela. A barra de baixo continua existindo
@@ -1144,6 +1466,7 @@ export default function Binder({
       )}
 
       {/* Controles: o que antes era decisao antecipada, agora e interruptor com efeito imediato. */}
+      {!arrumando && (
       <section className="mt-7 flex flex-wrap items-center justify-center gap-x-3 gap-y-3">
         <Switch
           options={[
@@ -1232,7 +1555,76 @@ export default function Binder({
         >
           <IconeLupa /> achar carta
         </button>
+
+        {/*
+          Arrumar fica na mesma fileira dos outros interruptores, e nao num botao
+          grande: e uma das coisas que se faz com o fichario, nao a principal. O
+          rotulo muda quando ja ha arranjo — "continuar" diz que o desenho dele
+          esta la esperando, e nao que vai comecar de novo.
+        */}
+        <button
+          type="button"
+          onClick={entrarNoModo}
+          className="inline-flex min-h-11 items-center gap-2 rounded-full bg-(--color-folha) px-4 text-sm font-medium shadow-sm ring-1 ring-black/5"
+        >
+          <IconeArrumar /> {arranjo ? "continuar arrumando" : "arrumar do meu jeito"}
+        </button>
       </section>
+      )}
+
+      {/*
+        Os controles do modo substituem os outros em vez de conviver com eles.
+        Dentro do modo nao ha lente, nem formato, nem ordem: as tres perguntas
+        que eles respondem sao sobre COMO OLHAR o fichario, e aqui a crianca esta
+        mexendo nele. Deixa-los na tela seria oferecer um gesto que o modo ignora.
+      */}
+      {arrumando && (
+        <section className="mt-7">
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={sairDoModo}
+              className="min-h-11 rounded-full bg-(--color-tinta) px-6 text-sm font-semibold text-(--color-mesa)"
+            >
+              ✓ pronto
+            </button>
+            <button
+              type="button"
+              onClick={() => setGaveta(true)}
+              disabled={arranjo?.mao != null}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-(--color-folha) px-4 text-sm font-medium shadow-sm ring-1 ring-black/5 disabled:opacity-45"
+            >
+              <span className="text-base leading-none">+</span> pegar carta
+            </button>
+            <button
+              type="button"
+              onClick={voltarAoAutomatico}
+              className={`min-h-11 rounded-full px-4 text-sm font-medium ${
+                confirmandoAutomatico
+                  ? "bg-(--color-tinta) text-(--color-mesa)"
+                  : "text-(--color-tinta-fraca) hover:text-(--color-tinta)"
+              }`}
+            >
+              {confirmandoAutomatico
+                ? "Tocar de novo para desarrumar"
+                : "arrumar de novo"}
+            </button>
+          </div>
+
+          {/* A unica frase do modo, e ela responde "e agora?". Com a carta na
+              mao quem responde e a faixa de baixo, entao esta some. */}
+          {arranjo?.mao == null && (
+            <p className="mt-2 text-center text-sm text-(--color-tinta-fraca)">
+              Toque numa carta para pegar. Toque num bolso para colocar.
+            </p>
+          )}
+          {confirmandoAutomatico && (
+            <p className="mt-1 text-center text-xs text-(--color-tinta-fraca)">
+              O fichário volta a se montar sozinho. As cartas continuam marcadas.
+            </p>
+          )}
+        </section>
+      )}
 
       {/*
         Impressao: acao do adulto, nao da crianca. Fica no fim, e explicada.
@@ -1242,6 +1634,7 @@ export default function Binder({
         faltam" apagava a diferenca — cada secao agora diz o nome dela e o que
         entra nela.
       */}
+      {!arrumando && (
       <section className="mt-8 border-t border-(--color-vinco) pt-6">
         {completa ? (
           <p className="text-center text-lg font-medium text-(--color-tenho)">
@@ -1285,6 +1678,7 @@ export default function Binder({
           </>
         )}
       </section>
+      )}
 
       {origem.tipo === "montado" && (
         <section className="mt-8 border-t border-(--color-vinco) pt-6 text-center">
@@ -1320,6 +1714,33 @@ export default function Binder({
           listas={listas}
           listaDaCarta={starred.get(chave(aberta)) ?? null}
           onMover={moverEstrela}
+        />
+      )}
+
+      {/*
+        A carta na mao numa faixa FIXA, e nao presa a um bolso: ela sobrevive a
+        virada de pagina, e e isso que faz o gesto funcionar num fichario de 300
+        bolsos — pegar na pagina 3, virar, e soltar na 12. Arrastar nunca daria
+        isso: o dedo teria de soltar para virar a folha.
+      */}
+      {arrumando && arranjo?.mao && (
+        <MaoDeCartas
+          item={arranjo.mao}
+          numberWidth={numberWidth}
+          podeTirar={universoKeys.has(chaveDe(arranjo.mao))}
+          onDevolver={devolverMao}
+          onTirar={tirarDaMao}
+        />
+      )}
+
+      {gaveta && arranjo && (
+        <Gaveta
+          colecoes={catalogo}
+          fora={arranjo.fora}
+          jaNoFichario={jaNoFichario}
+          numberWidth={numberWidth}
+          onPuxar={puxarCarta}
+          onClose={() => setGaveta(false)}
         />
       )}
 
@@ -1389,6 +1810,50 @@ function Switch({
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * Duas cartas trocando de lugar: o gesto do modo arrumar, inteiro, num desenho.
+ * Nao e uma mao — a mao aparece na faixa de baixo com a carta de verdade, e um
+ * segundo simbolo de mao aqui diria a mesma coisa duas vezes.
+ */
+function IconeArrumar() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect
+        x="1.4"
+        y="2.6"
+        width="5"
+        height="7"
+        rx="1"
+        stroke="currentColor"
+        strokeWidth="1.4"
+      />
+      <rect
+        x="9.6"
+        y="6.4"
+        width="5"
+        height="7"
+        rx="1"
+        stroke="currentColor"
+        strokeWidth="1.4"
+      />
+      <path
+        d="M8 3.6h3.4M9.9 2.1 11.6 3.6 9.9 5.1"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8 12.4H4.6M6.5 10.9 4.8 12.4l1.7 1.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

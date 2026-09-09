@@ -1,6 +1,13 @@
 import { notFound } from "next/navigation";
-import { getManifest } from "@/lib/manifests";
-import { getBinder, getOwnedIds, listarListas, starredComLista } from "@/lib/db";
+import { findPosicao, getManifest, listSets, posicoesDoSet } from "@/lib/manifests";
+import {
+  getArranjo,
+  getBinder,
+  getOwnedIds,
+  listarListas,
+  starredComLista,
+} from "@/lib/db";
+import { resolver } from "@/lib/arranjo";
 import { getUserId } from "@/lib/session";
 import Binder from "@/components/Binder";
 
@@ -31,6 +38,17 @@ export default async function BinderPage({
     listarListas(userId),
   ]);
 
+  // O arranjo manual depende do formato da folha (uma folha de 4 bolsos e outra
+  // folha), entao so da para pedi-lo depois de saber o layout — dai a segunda
+  // ida ao banco, e nao uma quinta dentro do Promise.all.
+  const alvo = { tipo: "colecao", setId: manifest.setId } as const;
+  const gravado = await getArranjo(userId, alvo, binder);
+  // Reconciliado AQUI, e nao no cliente: e o servidor que conhece as 27 colecoes
+  // e consegue resolver uma chave puxada de qualquer uma delas.
+  const arranjo = gravado
+    ? resolver(gravado, posicoesDoSet(setId, binder.sortRule), findPosicao)
+    : null;
+
   return (
     <Binder
       titulo={manifest.setName}
@@ -44,6 +62,8 @@ export default async function BinderPage({
       initialRows={binder.rows}
       initialColumns={binder.columns}
       initialSortRule={binder.sortRule}
+      arranjo={arranjo}
+      catalogo={listSets()}
     />
   );
 }

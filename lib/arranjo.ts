@@ -79,9 +79,22 @@ export type Relatorio = {
  * ultima folha, nao escolha de ninguem — e por isso sao aparados.
  */
 export function congelar(paginas: readonly (readonly (Posicao | null)[])[]): Arranjo {
-  const bolsos: (string | null)[] = [];
+  return serializar(congelarEstado(paginas), chaveDe);
+}
+
+/**
+ * O mesmo congelamento, guardando as CARTAS em vez das chaves.
+ *
+ * E o que a tela usa ao entrar no modo: ela ja tem as posicoes desenhadas em
+ * maos, e converter para chave so para converter de volta a cada gesto seria
+ * pedir um indice que ela nao precisa ter.
+ */
+export function congelarEstado<T>(
+  paginas: readonly (readonly (T | null)[])[],
+): Estado<T> {
+  const bolsos: (T | null)[] = [];
   for (const pagina of paginas) {
-    for (const item of pagina) bolsos.push(item ? chaveDe(item) : null);
+    for (const item of pagina) bolsos.push(item);
   }
   while (bolsos.length > 0 && bolsos[bolsos.length - 1] === null) bolsos.pop();
   return { bolsos, fora: [], mao: null };

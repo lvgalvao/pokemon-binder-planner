@@ -34,7 +34,9 @@ export default function Gaveta({
   /** As chaves que ja ocupam um bolso — nao podem ser puxadas de novo. */
   jaNoFichario: ReadonlySet<string>;
   numberWidth: number;
-  onPuxar: (key: string) => void;
+  /** Entrega a POSICAO inteira: a carta pode vir de colecao que este fichario
+   *  nao conhece, e o Binder nao tem indice para resolver uma chave solta. */
+  onPuxar: (item: Posicao) => void;
   onClose: () => void;
 }) {
   const [aberta, setAberta] = useState<string | null>(null);
@@ -68,7 +70,7 @@ export default function Gaveta({
   const pegar = (p: Posicao) => {
     const k = itemKey(p.card.id, p.variant);
     if (jaNoFichario.has(k)) return;
-    onPuxar(k);
+    onPuxar(p);
     onClose();
   };
 
