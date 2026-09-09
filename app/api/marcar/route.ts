@@ -1,4 +1,4 @@
-import { setOwned, setStarred } from "@/lib/db";
+import { listaExiste, listaPadrao, setOwned, setStarred } from "@/lib/db";
 import { getManifest } from "@/lib/manifests";
 import { requireUserId } from "@/lib/session";
 import { parseItemKey, variantesDe } from "@/lib/types";
@@ -13,6 +13,10 @@ import { parseItemKey, variantesDe } from "@/lib/types";
  *            destaca. Ganha folha propria no PDF, sozinha ou junto com as
  *            estrelas das outras colecoes.
  *
+ * A estrela cai na LISTA que o pedido disser (`listaId`). Sem lista dita, cai na
+ * primeira do usuario — e se ele nao tiver nenhuma, ela nasce aqui: tres toques
+ * numa carta continuam sendo o gesto inteiro, sem ter de criar nada antes.
+ *
  * Eram duas rotas, e a diferenca entre os arquivos era o nome do campo e a funcao
  * chamada no fim — mesma validacao, mesmo formato, mesmos erros. Duas copias de
  * uma validacao e duas chances de so uma delas ser corrigida.
@@ -24,14 +28,20 @@ const MARCAS = ["tenho", "estrela"] as const;
 type Marca = (typeof MARCAS)[number];
 
 export async function POST(request: Request) {
-  let body: { setId?: string; cardIds?: string[]; marca?: Marca; valor?: boolean };
+  let body: {
+    setId?: string;
+    cardIds?: string[];
+    marca?: Marca;
+    valor?: boolean;
+    listaId?: string;
+  };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "JSON invalido" }, { status: 400 });
   }
 
-  const { setId, cardIds, marca, valor } = body;
+  const { setId, cardIds, marca, valor, listaId } = body;
   if (
     typeof setId !== "string" ||
     !Array.isArray(cardIds) ||
@@ -65,8 +75,28 @@ export async function POST(request: Request) {
   // So aqui a conta nasce, e so depois da validacao: um pedido com carta
   // inexistente e recusado sem ter criado usuario nenhum.
   const userId = await requireUserId();
-  const gravar = marca === "tenho" ? setOwned : setStarred;
-  await gravar(userId, setId, accepted, valor);
 
-  return Response.json({ ok: true, count: accepted.length });
+  if (marca === "tenho") {
+    await setOwned(userId, setId, accepted, valor);
+    return Response.json({ ok: true, count: accepted.length });
+  }
+
+  // Tirar a estrela nao pergunta de que lista ela era; por a estrela precisa
+  // saber onde. Uma lista que nao e dele vira 404 antes de gravar — a FK
+  // composta do banco tambem recusaria, mas ali o erro chegaria como violacao de
+  // constraint, e o que a tela precisa saber e que a lista nao existe.
+  let destino: string | undefined;
+  if (valor) {
+    if (listaId !== undefined) {
+      if (typeof listaId !== "string" || !(await listaExiste(userId, listaId))) {
+        return Response.json({ error: "Lista não encontrada" }, { status: 404 });
+      }
+      destino = listaId;
+    } else {
+      destino = await listaPadrao(userId);
+    }
+  }
+
+  await setStarred(userId, setId, accepted, valor, destino);
+  return Response.json({ ok: true, count: accepted.length, listaId: destino });
 }

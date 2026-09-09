@@ -176,6 +176,50 @@ body {
   transform: scale(0.96);
 }
 
+/*
+  ------------------------------------------------------------- modo arrumar
+
+  A bancada nao ganha um terceiro acento. Verde responde "ja tenho", dourado
+  responde "quero muito", e sao os dois unicos — uma terceira cor forte brigaria
+  com as cartas, que sao o colorido desta tela. O modo se anuncia por MATERIA:
+  a mesa escurece, os bolsos ganham contorno, e o unico destaque cheio e o bolso
+  de onde a carta saiu, em tinta.
+*/
+
+/* A mesa da bancada: o fichario recuado sobre um fundo mais fechado, para ficar
+   obvio que a tela mudou de assunto sem precisar de aviso escrito. */
+.bancada {
+  background: color-mix(in srgb, var(--color-mesa-fundo) 85%, var(--color-tinta) 4%);
+  border-radius: 1.5rem;
+}
+
+/* De onde a carta que esta na mao saiu. Contorno cheio, porque este bolso e o
+   unico que responde uma pergunta ("da para desfazer?") — os outros so oferecem. */
+.bolso-origem {
+  outline: 2.5px solid var(--color-tinta);
+  outline-offset: 1px;
+}
+
+/* Com a mao cheia, todo bolso e destino. Tracejado e nao cheio: e um convite
+   distribuido por trinta bolsos, e trinta contornos fortes viram ruido. */
+.bolso-alvo {
+  outline: 2px dashed color-mix(in srgb, var(--color-tinta) 45%, transparent);
+  outline-offset: 1px;
+}
+
+/* A carta na mao, na faixa do rodape. A leve inclinacao e o que diz "erguida",
+   e nao "guardada" — e o mesmo sinal que a mao de verdade da. */
+.carta-na-mao {
+  transform: rotate(-2.5deg);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.28);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .carta-na-mao {
+    transform: none;
+  }
+}
+
 /* O vinco central com as argolas: e o que faz a tela ler como fichario, nao como grade. */
 .argolas {
   background:

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { listSets } from "@/lib/manifests";
-import { listarFicharios, ownedCountBySet } from "@/lib/db";
+import { listarFicharios, listarListas, ownedCountBySet } from "@/lib/db";
 import { estrelasDoUsuario } from "@/lib/listas";
 import { getUserId } from "@/lib/session";
 import { coverUrl } from "@/lib/assets";
@@ -21,10 +21,11 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const sets = listSets();
   const userId = await getUserId();
-  const [owned, estrelas, ficharios] = await Promise.all([
+  const [owned, estrelas, ficharios, listas] = await Promise.all([
     ownedCountBySet(userId),
     estrelasDoUsuario(userId),
     listarFicharios(userId),
+    listarListas(userId),
   ]);
   const porId = new Map(sets.map((s) => [s.setId, s]));
 
@@ -37,10 +38,11 @@ export default async function Home() {
         Escolha uma coleção para começar.
       </p>
 
-      {/* A lista de desejos vem antes das colecoes quando existe: e a resposta a
-          pergunta mais quente ("cade as minhas?"), e some por completo quando
-          nao ha nenhuma estrela. */}
-      <ListaDeDesejos estrelas={estrelas} />
+      {/* As listas de desejo vem antes das colecoes quando existem: sao a
+          resposta a pergunta mais quente ("cade as minhas?"), e somem por
+          completo enquanto ele nao tiver criado nenhuma — a primeira nasce
+          sozinha, da primeira estrela. */}
+      <ListaDeDesejos estrelas={estrelas} listas={listas} />
 
       {/*
         Os ficharios montados a mao vem antes das colecoes soltas: sao a pasta

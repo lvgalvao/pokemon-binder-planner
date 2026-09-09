@@ -61,11 +61,13 @@ virou Node porque `sharp` já é dependência (dispensa venv e Pillow) e porque 
 fala uma fonte só. A saída é a mesma da spec §2 e §5 — `tests/manifests.test.ts` cobre a forma.
 
 **Sem ORM.** Postgres no Supabase, com RLS, acessado pelo cliente `supabase-js` (`lib/db.ts`).
-Quatro tabelas, só estado do usuário: `binder` (layout e ordem por coleção), `owned_card` (presença
-da linha = possui), `starred_card` (presença da linha = quero muito) e `binder_group` (um fichário
-que junta várias coleções: nome, `set_ids` na ordem das folhas, layout e ordem). Nasceu em `node:sqlite`
+Só estado do usuário: `binder` (layout e ordem por coleção), `owned_card` (presença
+da linha = possui), `starred_card` (presença da linha = quero muito, mais a lista a que ela
+pertence), `binder_group` (um fichário que junta várias coleções: nome, `set_ids` na ordem das
+folhas, layout e ordem) e `wishlist` (uma lista de desejos: só o nome). Nasceu em `node:sqlite`
 local e migrou para ter dono e sobreviver ao aparelho; o PRD sugeria Prisma, que exigiria
-`prisma.config.ts` mais driver adapter — mais peça móvel que problema resolvido para quatro tabelas.
+`prisma.config.ts` mais driver adapter — mais peça móvel que problema resolvido para meia dúzia de
+tabelas.
 
 **Toda consulta recebe `userId` explícito**, em vez de ir buscar a sessão por dentro. É o que
 deixa "sem sessão = fichário vazio" visível em cada chamada — e este app abre sem sessão de
@@ -126,6 +128,35 @@ coleção seguinte no meio de uma folha: a numeração reiniciaria no meio da p�
 acontece DENTRO de cada coleção, nunca no fichário inteiro; juntar é pôr em sequência, não
 embaralhar. Desfazer o agrupamento (`DELETE /api/fichario`) **não toca em posse nem em estrela**: as
 cartas sempre foram da coleção.
+
+**A estrela mora numa lista, e uma carta está numa lista só.** `wishlist` guarda o nome;
+`starred_card.wishlist_id` diz de qual lista é cada estrela — a marca continua sendo a mesma linha
+de sempre, com a mesma chave, e por isso a migração não custou nenhuma das 98 estrelas em produção
+(cada dono ganhou "As que eu mais quero" e todas as suas foram para lá). A FK é **composta**,
+`(wishlist_id, user_id)` contra `(id, user_id)`: só `wishlist_id` deixaria gravar uma estrela minha
+dentro da lista de outra pessoa — invisível para os dois, porque cada um lê filtrando pelo próprio
+`user_id`, e mesmo assim uma linha na casa alheia. Uma carta em duas listas foi recusada de
+propósito: a estrela é UMA marca no bolso, e duas linhas para a mesma chave fariam uma marcação
+apagar a outra — o mesmo perigo que faz `parseItemKey` recusar sufixo desconhecido.
+
+**A lista nasce da primeira estrela, não de um cadastro.** Sem nenhuma lista, o POST de estrela
+cria "As que eu mais quero" e devolve o `listaId` (`listaPadrao`, em `lib/db.ts`) — três toques
+numa carta continuam sendo o gesto inteiro. A lista ativa vive no `localStorage`
+(`lib/listaAtiva.ts`) e não no banco, pela mesma razão que o filtro de raridade não é persistido:
+é onde a criança está olhando agora, e atravessar aparelhos faria a estrela cair numa lista que
+ela não lembra de ter escolhido.
+
+**Pôr estrela é binário; mudar de lista tem gesto próprio.** Três toques acendem na lista ativa ou
+apagam — uma carta já marcada em OUTRA lista **não** muda de lugar sozinha, porque uma troca
+invisível só seria descoberta na folha impressa. Mudar de lista acontece no visualizador, onde dá
+para ver qual carta está mudando (as pílulas sob o botão da estrela), e é o `upsert` de
+`setStarred` com `ignoreDuplicates` FALSE — ao contrário de `setOwned`, aqui o conflito é o gesto,
+não ruído.
+
+**Apagar uma lista apaga as estrelas dela** (cascade), e é o único DELETE do app que custa
+marcação — desfazer um fichário montado não custa. Por isso a confirmação em dois toques diz o
+número de cartas antes do segundo, e a última lista não pode ser apagada: sem nenhuma, a estrela
+seguinte criaria outra sozinha e a tela pareceria ter esquecido tudo.
 
 **Filtro de raridade é lente, não estado.** O painel (`components/Raridades.tsx`, botão "raridades"
 no rodapé) filtra os bolsos por bucket e compõe com os quatro olhares — "só as especiais" + "o que
@@ -235,6 +266,12 @@ iça qualquer `@theme` para o topo, e a paleta escura passa a valer sempre.
   nunca foi usado por ninguém, o que já dizia que a marca útil era a outra. Estrela **não mexe na
   posse** (o esconder apagava): "já tenho" e "quero muito" são perguntas diferentes, e uma
   estrela conquistada é a melhor notícia do app, não uma contradição a resolver.
+- **São várias listas de desejo, e a segunda só aparece quando existe.** Com uma lista a tela é
+  exatamente a de antes — nenhuma aba, nenhum seletor, só um `+ nova lista` discreto na ponta. A
+  fileira de listas, o botão "★ vai para:" no rodapé do fichário e a folha "todas as listas juntas"
+  nascem junto com a segunda: um controle que não muda nada é pior que controle nenhum. Chamam-se
+  *listas* e não *fichas* porque *ficha* e *fichário* lado a lado, para uma criança, são a mesma
+  palavra.
 - **A lista de desejos vive na tela inicial**, acima das coleções, e só existe quando há estrela.
   É onde as estrelas de coleções diferentes ficam lado a lado — no fichário cada coleção é um
   mundo fechado, a vontade da criança não é. As já conquistadas continuam lá, com o visto verde;

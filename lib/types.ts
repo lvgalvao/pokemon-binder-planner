@@ -70,8 +70,30 @@ export type SetSummary = {
   coverPath: string;
 };
 
+/**
+ * Uma lista de desejos: um nome, e as estrelas que apontam para ela.
+ *
+ * Mora aqui, e nao em `lib/db.ts`, pelo mesmo motivo que `lib/sheet.ts` e puro:
+ * o fichario e a tela inicial precisam do tipo, e importar `db.ts` no navegador
+ * arrastaria o cliente do Supabase junto.
+ */
+export type ListaDeDesejos = { id: string; nome: string };
+
 export type SortRule = "number" | "rarity";
 export type Layout = { rows: number; columns: number };
+
+/**
+ * De qual fichario se esta falando: a colecao aberta direto (`/binder/sv7`) ou o
+ * fichario montado a mao (`/fichario/<id>`).
+ *
+ * Os dois sao a MESMA tela e as mesmas regras — a diferenca cabe nestes dois
+ * campos, e nao numa segunda copia do fichario. `/api/binder` ja discriminava
+ * assim; o arranjo manual passou a precisar do mesmo par, entao ele subiu para
+ * o vocabulario comum.
+ */
+export type Alvo =
+  | { tipo: "colecao"; setId: string }
+  | { tipo: "montado"; id: string };
 
 /**
  * Formatos de folha de fichario, na convencao impressa na embalagem:
@@ -106,6 +128,20 @@ export type Variant = "normal" | "holo" | "pokebola";
 
 /** Uma posicao do fichario: uma carta numa versao especifica. */
 export type SlotItem = { card: Card; variant: Variant };
+
+/**
+ * Um BOLSO do fichario, que sabe de que colecao a carta dele veio.
+ *
+ * Num fichario com varias colecoes — e mais ainda num arranjado a mao, onde
+ * qualquer carta pode ocupar qualquer bolso — "o setId" deixa de ser propriedade
+ * da tela e passa a ser propriedade do bolso: e ele que decide o selo da variante
+ * (so `me2pt5` tem dois reverses), contra qual manifest a marcacao e validada e,
+ * no fichario automatico, onde a colecao seguinte comeca.
+ *
+ * Morava dentro de Binder.tsx. Subiu para ca quando o arranjo manual passou a
+ * atravessar cliente, servidor e folha impressa com o mesmo tipo.
+ */
+export type Posicao = SlotItem & { setId: string; setName: string };
 
 /**
  * Sets sem reverse holo. O reverse holo so surge por volta de 2002 (Legendary

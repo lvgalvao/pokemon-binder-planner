@@ -5,11 +5,23 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { sortCards, cardNumber } from "@/lib/cards";
 import {
+  generateSlots,
   generateSlotsByGroup,
   missingCards,
   progress,
   findCardPage,
 } from "@/lib/binder";
+import {
+  congelar,
+  chaveDe,
+  puxar,
+  serializar,
+  tirar,
+  tocar,
+  type Arranjo,
+  type Estado,
+  type Relatorio,
+} from "@/lib/arranjo";
 import {
   LAYOUTS,
   BUCKET_LABELS,
@@ -19,15 +31,23 @@ import {
   expandirVariantes,
   bucketEspecial,
   atalhoEspeciaisSeparaAlgo,
+  type Alvo,
   type Bucket,
   type Card,
+  type ListaDeDesejos,
+  type Posicao,
+  type SetSummary,
   type SlotItem,
   type SortRule,
 } from "@/lib/types";
+import { useListaAtiva } from "@/lib/listaAtiva";
 import BlocoDeImpressao from "./BlocoDeImpressao";
 import CardSlot from "./CardSlot";
+import EscolherLista from "./EscolherLista";
 import CardViewer from "./CardViewer";
 import FindCard from "./FindCard";
+import Gaveta from "./Gaveta";
+import MaoDeCartas from "./MaoDeCartas";
 import Raridades from "./Raridades";
 
 /** Uma colecao dentro do fichario, na ordem em que ela entra nas folhas. */
@@ -39,9 +59,7 @@ export type ColecaoNoFichario = { setId: string; setName: string; cards: Card[] 
  * com varias colecoes (`/fichario/<id>`) sao a MESMA tela — a diferenca cabe
  * nestes dois campos, e nao numa segunda copia do fichario.
  */
-export type Origem =
-  | { tipo: "colecao"; setId: string }
-  | { tipo: "montado"; id: string };
+export type Origem = Alvo;
 
 type Props = {
   /** O nome no alto: a colecao, ou o fichario que ele montou. */
@@ -50,21 +68,36 @@ type Props = {
   colecoes: ColecaoNoFichario[];
   origem: Origem;
   initialOwned: string[];
-  initialStarred: string[];
+  /**
+   * As estrelas com a LISTA de cada uma: `[chave, listaId]`.
+   *
+   * Par e nao chave solta porque o bolso faz duas perguntas diferentes sobre a
+   * mesma marca — acende por ela existir, e o visualizador precisa dizer em qual
+   * lista ela esta. Um conjunto de chaves respondia so a primeira.
+   */
+  initialStarred: [string, string][];
   initialRows: number;
   initialColumns: number;
   initialSortRule: SortRule;
-};
 
-/**
- * Uma posicao do fichario que sabe de que colecao veio.
- *
- * Num fichario com tres colecoes, "o setId" deixa de ser propriedade da tela e
- * passa a ser propriedade do BOLSO: e ele que decide o selo da variante (so
- * `me2pt5` tem dois reverses), a que manifest a marcacao vai ser validada e em
- * que pagina a colecao seguinte comeca.
- */
-type Posicao = SlotItem & { setId: string; setName: string };
+  /**
+   * O fichario arrumado a mao, ja reconciliado pelo servidor — ou `null`, e ai
+   * as posicoes sao as derivadas de sempre.
+   */
+  arranjo: {
+    bolsos: (Posicao | null)[];
+    fora: Posicao[];
+    mao: Posicao | null;
+    relatorio: Relatorio;
+  } | null;
+  /** As 27 colecoes, para a gaveta. So capas e nomes; as cartas vem sob demanda. */
+  catalogo: SetSummary[];
+  /**
+   * As listas de desejo dele. Vazio ate a primeira estrela: a lista nasce no
+   * servidor, dentro da primeira marcacao, e nao de um cadastro previo.
+   */
+  listas: ListaDeDesejos[];
+};
 
 /**
  * Quatro olhares sobre a mesma colecao:
@@ -114,9 +147,17 @@ export default function Binder({
   initialRows,
   initialColumns,
   initialSortRule,
+  arranjo: arranjoInicial,
+  catalogo,
+  listas,
 }: Props) {
   const [owned, setOwned] = useState<Set<string>>(() => new Set(initialOwned));
-  const [starred, setStarred] = useState<Set<string>>(() => new Set(initialStarred));
+  /** chave do bolso -> id da lista em que a estrela esta. */
+  const [starred, setStarred] = useState<Map<string, string>>(
+    () => new Map(initialStarred),
+  );
+  const [listaAtiva, escolherLista] = useListaAtiva(listas);
+  const [escolhendoLista, setEscolhendoLista] = useState(false);
   const [rows, setRows] = useState(initialRows);
   const [columns, setColumns] = useState(initialColumns);
   const [sortRule, setSortRule] = useState<SortRule>(initialSortRule);
@@ -148,6 +189,25 @@ export default function Binder({
   const [erro, setErro] = useState<string | null>(null);
   const [confirmandoDesfazer, setConfirmandoDesfazer] = useState(false);
   const router = useRouter();
+
+  /**
+   * O fichario arrumado a mao. `null` = automatico, que e como todo fichario
+   * comeca. Guarda `Posicao` e nao chave: a tela ja tem as cartas em maos, e
+   * assim um gesto nao precisa consultar indice nenhum para saber o que moveu.
+   */
+  const [arranjo, setArranjo] = useState<Estado<Posicao> | null>(
+    arranjoInicial
+      ? { bolsos: arranjoInicial.bolsos, fora: arranjoInicial.fora, mao: arranjoInicial.mao }
+      : null,
+  );
+  const [arrumando, setArrumando] = useState(false);
+  const [gaveta, setGaveta] = useState(false);
+  /** De onde a carta na mao saiu — so nesta sessao, para o bolso se marcar. */
+  const [origemDaMao, setOrigemDaMao] = useState<number | null>(null);
+  const [confirmandoAutomatico, setConfirmandoAutomatico] = useState(false);
+  const [avisoDaCauda, setAvisoDaCauda] = useState(
+    arranjoInicial?.relatorio.acrescentadas ?? 0,
+  );
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fichRef = useRef<HTMLDivElement>(null);
   const ladoEsqRef = useRef<HTMLDivElement>(null);
@@ -166,7 +226,7 @@ export default function Binder({
    * Cada carta comum/incomum/rara ocupa DOIS bolsos (a simples e a brilhante), e
    * a expansao vem depois da ordenacao, entao o par fica junto nas duas ordens.
    */
-  const posicoes = useMemo<Posicao[]>(() => {
+  const automaticas = useMemo<Posicao[]>(() => {
     const out: Posicao[] = [];
     for (const c of colecoes) {
       for (const item of expandirVariantes(sortCards(c.cards, sortRule), c.setId)) {
@@ -176,8 +236,36 @@ export default function Binder({
     return out;
   }, [colecoes, sortRule]);
 
+  /**
+   * Os BOLSOS do fichario, com os vazios no lugar deles.
+   *
+   * Arrumado a mao, sao os bolsos que ele montou — inclusive os vazios de
+   * proposito. Automatico, e a sequencia derivada de sempre, e a paginacao
+   * cuida dos vazios da ultima folha.
+   */
+  const bolsos = useMemo<(Posicao | null)[]>(
+    () => arranjo?.bolsos ?? automaticas,
+    [arranjo, automaticas],
+  );
+
+  /** As cartas que estao no fichario, sem os bolsos vazios — para as contas. */
+  const posicoes = useMemo<Posicao[]>(
+    () => bolsos.filter((b): b is Posicao => b !== null),
+    [bolsos],
+  );
+
   const chave = (i: SlotItem) => itemKey(i.card.id, i.variant);
   const varias = colecoes.length > 1;
+
+  /**
+   * As chaves das colecoes DESTE fichario — o universo que "tirar do fichario"
+   * conhece. Uma carta puxada da gaveta, de colecao estranha, nao entra em
+   * `fora`: nada iria repo-la, entao guardar seria so engordar o array.
+   */
+  const universoKeys = useMemo(
+    () => new Set(automaticas.map(chaveDe)),
+    [automaticas],
+  );
 
   /**
    * "O que eu tenho" remonta o fichario apenas com as cartas que ele possui,
@@ -190,16 +278,48 @@ export default function Binder({
    * independentes: "so as especiais" e "o que falta" combinam, e o resultado e
    * o que falta entre as especiais.
    */
-  const visiveis = useMemo(
-    () => (raridades ? posicoes.filter((i) => raridades.has(i.card.bucket)) : posicoes),
-    [posicoes, raridades],
+  /**
+   * As duas lentes juntas, como um teste sobre um bolso. Sao independentes: "so
+   * as especiais" e "o que falta" combinam, e o resultado e o que falta entre as
+   * especiais.
+   *
+   * No modo arrumar nao ha lente nenhuma — nao se coloca carta num bolso que nao
+   * esta a vista.
+   */
+  const passa = useCallback(
+    (i: Posicao) => {
+      if (arrumando) return true;
+      if (raridades && !raridades.has(i.card.bucket)) return false;
+      if (view === "mine") return owned.has(chave(i));
+      if (view === "missing") return !owned.has(chave(i));
+      if (view === "star") return starred.has(chave(i));
+      return true;
+    },
+    [arrumando, raridades, view, owned, starred],
   );
-  const naPagina = useMemo(() => {
-    if (view === "mine") return visiveis.filter((i) => owned.has(chave(i)));
-    if (view === "missing") return visiveis.filter((i) => !owned.has(chave(i)));
-    if (view === "star") return visiveis.filter((i) => starred.has(chave(i)));
-    return visiveis;
-  }, [visiveis, view, owned, starred]);
+
+  /**
+   * O que vai para as folhas.
+   *
+   * Arrumado a mao, a lente APAGA em vez de compactar: o bolso que nao passa
+   * fica vazio no lugar dele. Compactar destruiria as posicoes que ele escolheu
+   * — e "o que falta" vira o fichario com os buracos de verdade, que e mais
+   * honesto que a lista corrida. Automatico, compacta como sempre: ali a posicao
+   * nao e de ninguem, e um fichario cheio de buracos so atrapalharia a caca.
+   */
+  const naPagina = useMemo<(Posicao | null)[]>(
+    () =>
+      arranjo
+        ? bolsos.map((b) => (b !== null && passa(b) ? b : null))
+        : automaticas.filter(passa),
+    [arranjo, bolsos, automaticas, passa],
+  );
+
+  /** Quantos bolsos a lente deixou — o que decide se a tela tem o que mostrar. */
+  const quantosAVista = useMemo(
+    () => naPagina.reduce((n, b) => (b === null ? n : n + 1), 0),
+    [naPagina],
+  );
 
   /**
    * Quantos BOLSOS cada raridade ocupa nesta colecao, na ordem do fichario.
@@ -242,8 +362,19 @@ export default function Binder({
    * o fichario de sempre nao muda em nada.
    */
   const pages = useMemo(
-    () => generateSlotsByGroup(naPagina, rows, columns, (i) => i.setId),
-    [naPagina, rows, columns],
+    () =>
+      // Arrumado a mao, a fronteira de colecao por pagina deixa de valer: quem
+      // decide onde cada carta fica e ele. `generateSlots` ja aceita bolso vazio,
+      // porque devolve `sortedCards[i] ?? null` — nao ha paginacao nova aqui.
+      arranjo
+        ? generateSlots(naPagina, rows, columns)
+        : generateSlotsByGroup(
+            naPagina as Posicao[],
+            rows,
+            columns,
+            (i) => i.setId,
+          ),
+    [arranjo, naPagina, rows, columns],
   );
   const missing = useMemo(() => missingCards(posicoes, owned, chave), [posicoes, owned]);
   /** As estrelas que ainda faltam — as unicas que precisam de recorte. */
@@ -251,6 +382,19 @@ export default function Binder({
     () => missing.filter((i) => starred.has(chave(i))),
     [missing, starred],
   );
+  /**
+   * Quantas estrelas DESTE fichario ja estao em cada lista — o numero que o
+   * painel mostra ao lado de cada nome. Sai do que esta na tela, e nao do banco:
+   * a pergunta e "onde eu estava pondo as desta colecao".
+   */
+  const estrelasPorLista = useMemo(() => {
+    const conta = new Map<string, number>();
+    for (const listaId of starred.values()) {
+      conta.set(listaId, (conta.get(listaId) ?? 0) + 1);
+    }
+    return conta;
+  }, [starred]);
+
   /**
    * A conta sai de `missing`, nao de `owned.size`: o conjunto gravado pode conter
    * chave que o fichario nao mostra mais (uma carta que saiu do manifest, ou um
@@ -356,19 +500,18 @@ export default function Binder({
   );
 
   /**
-   * Poe ou tira a estrela. Nao mexe na posse, ao contrario do esconder que
-   * existia aqui: "quero muito" e "ja tenho" convivem, e a carta continua no
-   * fichario e na conta das faltantes.
+   * Grava a estrela: `destino` e a lista onde ela deve ficar, ou `null` para
+   * tirar. A tela ja mudou antes desta chamada; aqui e so a gravacao, com o
+   * desfazer no bolso caso a rede recuse.
+   *
+   * A resposta traz `listaId` porque o servidor pode ter decidido por conta: sem
+   * nenhuma lista criada, a primeira estrela CRIA a primeira lista. Sem ler isso
+   * de volta, a carta ficaria acesa apontando para uma lista que o cliente nao
+   * conhece.
    */
-  const toggleStar = useCallback(
-    (item: Posicao) => {
+  const gravarEstrela = useCallback(
+    (item: Posicao, destino: string | null, anterior: string | null) => {
       const k = itemKey(item.card.id, item.variant);
-      const tinha = starred.has(k);
-      setStarred((prev) => {
-        const next = new Set(prev);
-        tinha ? next.delete(k) : next.add(k);
-        return next;
-      });
       void enfileirar(async () => {
         const res = await fetch("/api/marcar", {
           method: "POST",
@@ -377,20 +520,72 @@ export default function Binder({
             setId: item.setId,
             cardIds: [k],
             marca: "estrela",
-            valor: !tinha,
+            valor: destino !== null,
+            ...(destino ? { listaId: destino } : {}),
           }),
         });
         if (!res.ok) throw new Error();
-      }).catch(() => {
-        setStarred((prev) => {
-          const next = new Set(prev);
-          tinha ? next.add(k) : next.delete(k);
-          return next;
+        return (await res.json()) as { listaId?: string };
+      })
+        .then((corpo) => {
+          if (!corpo.listaId || corpo.listaId === destino) return;
+          // A lista nasceu agora, no servidor. Corrige o bolso e pede a tela de
+          // volta: e a unica vez que isso acontece na vida do usuario.
+          setStarred((prev) => new Map(prev).set(k, corpo.listaId!));
+          router.refresh();
+        })
+        .catch(() => {
+          setStarred((prev) => {
+            const next = new Map(prev);
+            anterior === null ? next.delete(k) : next.set(k, anterior);
+            return next;
+          });
+          avisarFalha();
         });
-        avisarFalha();
-      });
     },
-    [starred, avisarFalha],
+    [router, avisarFalha],
+  );
+
+  /**
+   * Poe ou tira a estrela. Nao mexe na posse, ao contrario do esconder que
+   * existia aqui: "quero muito" e "ja tenho" convivem, e a carta continua no
+   * fichario e na conta das faltantes.
+   *
+   * O gesto e binario de proposito — acende na lista ativa, ou apaga. Uma carta
+   * ja marcada em OUTRA lista nao muda de lugar sozinha: tres toques rapidos
+   * mudando a carta de lista seria uma troca invisivel, e ele so descobriria na
+   * folha impressa. Mudar de lista tem gesto proprio, no visualizador, onde da
+   * para ver que carta esta mudando.
+   */
+  const toggleStar = useCallback(
+    (item: Posicao) => {
+      const k = itemKey(item.card.id, item.variant);
+      const anterior = starred.get(k) ?? null;
+      // `listaAtiva` e null so enquanto nao existe lista nenhuma; ai o destino
+      // fica em branco na tela e o servidor devolve qual lista criou.
+      const destino = anterior === null ? (listaAtiva ?? "") : null;
+
+      setStarred((prev) => {
+        const next = new Map(prev);
+        destino === null ? next.delete(k) : next.set(k, destino);
+        return next;
+      });
+      gravarEstrela(item, destino, anterior);
+    },
+    [starred, listaAtiva, gravarEstrela],
+  );
+
+  /** Mudar a carta de lista, do visualizador — sem passar por tirar e repor. */
+  const moverEstrela = useCallback(
+    (item: Posicao, listaId: string) => {
+      const k = itemKey(item.card.id, item.variant);
+      const anterior = starred.get(k) ?? null;
+      if (anterior === listaId) return;
+
+      setStarred((prev) => new Map(prev).set(k, listaId));
+      gravarEstrela(item, listaId, anterior);
+    },
+    [starred, gravarEstrela],
   );
 
   const toggle = useCallback(
@@ -1009,6 +1204,27 @@ export default function Binder({
           )}
         </div>
 
+        {/*
+          Para onde vai a proxima estrela. So aparece a partir da SEGUNDA lista:
+          com uma so nao ha escolha, e o botao seria um controle que nao muda
+          nada — a mesma regra do atalho "so as especiais", que some onde nao
+          separa nada.
+        */}
+        {listas.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setEscolhendoLista(true)}
+            className="inline-flex min-h-11 max-w-[15rem] items-center gap-2 rounded-full bg-(--color-folha) px-4 text-sm font-medium shadow-sm ring-1 ring-black/5"
+          >
+            <span aria-hidden className="text-(--color-estrela)">
+              ★
+            </span>
+            <span className="truncate">
+              vai para: {listas.find((l) => l.id === listaAtiva)?.nome ?? listas[0].nome}
+            </span>
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => setFinding(true)}
@@ -1099,6 +1315,21 @@ export default function Binder({
           onToggle={toggle}
           onToggleStar={toggleStar}
           onClose={() => setAberta(null)}
+          /* Aqui, e so aqui, a carta muda de lista: e a unica tela em que da
+             para ver QUAL carta esta mudando de lugar. */
+          listas={listas}
+          listaDaCarta={starred.get(chave(aberta)) ?? null}
+          onMover={moverEstrela}
+        />
+      )}
+
+      {escolhendoLista && (
+        <EscolherLista
+          listas={listas}
+          ativa={listaAtiva}
+          contagens={estrelasPorLista}
+          onChange={escolherLista}
+          onClose={() => setEscolhendoLista(false)}
         />
       )}
 

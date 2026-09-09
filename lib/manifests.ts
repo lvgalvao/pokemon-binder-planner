@@ -1,6 +1,15 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
-import { BUCKETS, type Bucket, type Manifest, type SetSummary } from "./types";
+import {
+  BUCKETS,
+  expandirVariantes,
+  itemKey,
+  type Bucket,
+  type Manifest,
+  type Posicao,
+  type SetSummary,
+} from "./types";
+import { sortCards } from "./cards";
 
 /**
  * Os manifests sao os unicos 740 KB de assets/ que ficam versionados. As imagens
@@ -60,9 +69,67 @@ function loadAll(): Map<string, Manifest> {
   return cache;
 }
 
+/**
+ * Toda posicao de todas as colecoes, indexada pela CHAVE DE ITEM.
+ *
+ * Por chave e nao por `cardId` de proposito: o arranjo manual guarda
+ * `me2pt5-4#pokebola`, e so a chave inteira responde se aquela versao existe
+ * naquela colecao. Um indice por id aceitaria um `#pokebola` numa colecao que
+ * nao tem o segundo reverse — e duas chaves diferentes caindo no mesmo bolso e
+ * exatamente o que `parseItemKey` recusa fazer.
+ *
+ * Sao ~7.700 entradas nas 27 colecoes. Construido uma vez, no mesmo cache
+ * preguicoso dos manifests, porque quem precisa dele — resolver um arranjo —
+ * precisa dele inteiro.
+ */
+let posicaoCache: Map<string, Posicao> | null = null;
+
+function indice(): Map<string, Posicao> {
+  if (posicaoCache) return posicaoCache;
+  const out = new Map<string, Posicao>();
+  for (const m of loadAll().values()) {
+    for (const item of expandirVariantes(m.cards, m.setId)) {
+      out.set(itemKey(item.card.id, item.variant), {
+        ...item,
+        setId: m.setId,
+        setName: m.setName,
+      });
+    }
+  }
+  posicaoCache = out;
+  return out;
+}
+
+/**
+ * A posicao de uma chave de item, venha ela de que colecao vier.
+ *
+ * E o que permite o arranjo manual guardar so a chave: o `setId` sai daqui, e
+ * NUNCA de cortar a string — o id e `<setId>-<numero>`, mas apostar nisso para
+ * decidir contra qual manifest validar seria adivinhar onde da para consultar.
+ */
+export function findPosicao(key: string): Posicao | null {
+  return indice().get(key) ?? null;
+}
+
+/**
+ * Os bolsos que uma colecao ocupa, na ordem automatica — a mesma expansao que o
+ * fichario faz na tela. E o universo contra o qual um arranjo e reconciliado:
+ * o que esta aqui e nao esta no arranjo e carta que ainda nao foi colocada.
+ */
+export function posicoesDoSet(setId: string, rule: "number" | "rarity"): Posicao[] {
+  const m = getManifest(setId);
+  if (!m) return [];
+  return expandirVariantes(sortCards(m.cards, rule), setId).map((item) => ({
+    ...item,
+    setId: m.setId,
+    setName: m.setName,
+  }));
+}
+
 /** So para os testes — o cache e proposital em producao. */
 export function resetManifestCache(): void {
   manifestCache = null;
+  posicaoCache = null;
 }
 
 /**

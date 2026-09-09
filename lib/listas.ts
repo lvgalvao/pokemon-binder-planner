@@ -10,7 +10,13 @@ import type { ItemImpresso } from "./pdf";
  * se ele ja conseguiu. Carrega o nome da colecao porque ali a pergunta nao e
  * "o que falta nesta colecao" — sao cartas de varias, lado a lado.
  */
-export type Estrela = SlotItem & { setId: string; setName: string; owned: boolean };
+export type Estrela = SlotItem & {
+  setId: string;
+  setName: string;
+  owned: boolean;
+  /** A lista de desejos em que ela esta. Toda estrela esta em uma, e em uma so. */
+  listaId: string;
+};
 
 /**
  * O que vai para a folha.
@@ -79,23 +85,39 @@ export async function estrelasDoUsuario(userId: string | null): Promise<Estrela[
     const manifest = getManifest(setId);
     if (!manifest) continue; // colecao que saiu do disco: a estrela fica orfa, sem quebrar a tela
 
-    const estrelas = new Set(porSet.get(setId));
+    const estrelas = new Map(porSet.get(setId)!.map((e) => [e.cardId, e.listaId]));
     const possuidas = possuidasPorSet.get(setId)!;
 
     for (const item of expandirVariantes(sortCards(manifest.cards, "number"), setId)) {
       const k = chave(item);
-      if (!estrelas.has(k)) continue;
-      out.push({ ...item, setId, setName: manifest.setName, owned: possuidas.has(k) });
+      const listaId = estrelas.get(k);
+      if (listaId === undefined) continue;
+      out.push({
+        ...item,
+        setId,
+        setName: manifest.setName,
+        owned: possuidas.has(k),
+        listaId,
+      });
     }
   }
   return out;
 }
 
-/** As estrelas que vao para a folha: as que ele ainda nao tem. */
-export async function itensDasEstrelas(userId: string | null): Promise<ItemImpresso[]> {
+/**
+ * As estrelas que vao para a folha: as que ele ainda nao tem.
+ *
+ * Com `listaId`, so as daquela lista — que e a folha de cada lista na tela
+ * inicial. Sem ele, todas juntas: a folha de "tudo junto", que so faz sentido
+ * quando existe mais de uma lista para juntar.
+ */
+export async function itensDasEstrelas(
+  userId: string | null,
+  listaId?: string,
+): Promise<ItemImpresso[]> {
   const estrelas = await estrelasDoUsuario(userId);
   return estrelas
-    .filter((e) => !e.owned)
+    .filter((e) => !e.owned && (listaId === undefined || e.listaId === listaId))
     .map(({ card, variant, setId }) => ({ card, variant, setId }));
 }
 

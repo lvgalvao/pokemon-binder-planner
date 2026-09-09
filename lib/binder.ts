@@ -65,12 +65,15 @@ export function progress(total: number, ownedCount: number): Progress {
  * digitou 117, o fichario pula para la.
  */
 export function findCardPage<T extends { card: Card }>(
-  sorted: readonly T[],
+  // Aceita bolso vazio porque o fichario arrumado a mao tem vazios NO MEIO, e o
+  // indice do bolso e o que decide a pagina: filtrar os nulos antes daria a
+  // pagina errada por quantos vazios houvesse ate ali.
+  sorted: readonly (T | null)[],
   n: number,
   rows: number,
   columns: number,
 ): { page: number; slot: number; item: T } | null {
-  const index = sorted.findIndex((i) => cardNumber(i.card) === n);
+  const index = sorted.findIndex((i) => i !== null && cardNumber(i.card) === n);
   if (index < 0) return null;
   const perPage = rows * columns;
   return {

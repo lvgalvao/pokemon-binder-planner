@@ -1,6 +1,11 @@
 import { notFound } from "next/navigation";
 import { getManifest } from "@/lib/manifests";
-import { getFichario, getOwnedIds, getStarredIds } from "@/lib/db";
+import {
+  getFichario,
+  listarListas,
+  ownedIdsDeSets,
+  starredComLista,
+} from "@/lib/db";
 import { getUserId } from "@/lib/session";
 import Binder from "@/components/Binder";
 
@@ -32,22 +37,23 @@ export default async function FicharioPage({
     .map((m) => ({ setId: m.setId, setName: m.setName, cards: m.cards }));
   if (colecoes.length === 0) notFound();
 
-  // Um par de consultas por colecao, todas em paralelo: o custo e o round-trip
-  // mais lento, nao a soma deles.
-  const marcas = await Promise.all(
-    colecoes.map(async (c) => ({
-      owned: await getOwnedIds(userId, c.setId),
-      starred: await getStarredIds(userId, c.setId),
-    })),
-  );
+  // Uma consulta para as posses de TODAS as colecoes e outra para as estrelas —
+  // um `in` custa o mesmo round-trip que um `eq`, e as tres vao em paralelo.
+  const setIds = colecoes.map((c) => c.setId);
+  const [owned, starred, listas] = await Promise.all([
+    ownedIdsDeSets(userId, setIds),
+    starredComLista(userId, setIds),
+    listarListas(userId),
+  ]);
 
   return (
     <Binder
       titulo={fichario.nome}
       colecoes={colecoes}
       origem={{ tipo: "montado", id: fichario.id }}
-      initialOwned={marcas.flatMap((m) => [...m.owned])}
-      initialStarred={marcas.flatMap((m) => [...m.starred])}
+      initialOwned={[...owned]}
+      initialStarred={[...starred]}
+      listas={listas}
       initialRows={fichario.rows}
       initialColumns={fichario.columns}
       initialSortRule={fichario.sortRule}
