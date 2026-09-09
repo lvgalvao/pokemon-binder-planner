@@ -46,6 +46,24 @@ type Props<T extends SlotItem> = {
   onToggleStar: (item: T) => void;
   /** Toque simples: abre a carta grande. */
   onOpen: (item: T) => void;
+
+  /**
+   * Modo "arrumar do meu jeito". Muda o bolso por inteiro, e nao por cima:
+   *
+   *  - **um toque, um significado.** O duplo que marca e o triplo que poe
+   *    estrela ficam desligados, e o toque age NA HORA — sem a janela de 260 ms,
+   *    que so existe para separar um toque de dois.
+   *  - **o bolso vazio vira botao.** Fora do modo ele e um `<div aria-hidden>`,
+   *    porque um bolso vazio nao responde nada; aqui e justamente nele que a
+   *    crianca toca para colocar a carta que esta na mao.
+   */
+  arrumando?: boolean;
+  /** O bolso de onde a carta que esta na mao saiu. */
+  origem?: boolean;
+  /** Ha carta na mao: este bolso e um destino possivel. */
+  alvo?: boolean;
+  /** O gesto do modo: a carta daqui vai para a mao, a da mao fica aqui. */
+  onArrumar?: () => void;
 };
 
 export default function CardSlot<T extends SlotItem>({
@@ -58,6 +76,10 @@ export default function CardSlot<T extends SlotItem>({
   onToggle,
   onToggleStar,
   onOpen,
+  arrumando = false,
+  origem = false,
+  alvo = false,
+  onArrumar,
 }: Props<T>) {
   const [failed, setFailed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -82,7 +104,29 @@ export default function CardSlot<T extends SlotItem>({
 
   // Bolso sem carta: acontece de verdade na ultima pagina. Fica vazio mesmo —
   // o fichario fisico e assim, e preencher seria mentira.
-  if (!item) return <div className="bolso bolso-vazio" aria-hidden />;
+  //
+  // No modo arrumar ele deixa de ser decoracao e vira o alvo do gesto: e nele
+  // que a carta da mao vai parar, e o de onde ela saiu fica marcado para a
+  // crianca poder desfazer pelo olho.
+  if (!item) {
+    if (!arrumando) return <div className="bolso bolso-vazio" aria-hidden />;
+    return (
+      <button
+        type="button"
+        onClick={onArrumar}
+        aria-label={
+          origem
+            ? "Bolso de onde a carta saiu — toque para devolver"
+            : alvo
+              ? "Bolso vazio — toque para colocar a carta da mão"
+              : "Bolso vazio"
+        }
+        className={`bolso bolso-vazio min-h-11 cursor-pointer touch-manipulation select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-tinta) ${
+          origem ? "bolso-origem" : alvo ? "bolso-alvo" : ""
+        }`}
+      />
+    );
+  }
 
   const { card, variant } = item;
   const holo = variant !== "normal";
@@ -115,6 +159,12 @@ export default function CardSlot<T extends SlotItem>({
    */
   const aoClicar = (e: React.MouseEvent) => {
     cancelarPendente();
+    // No modo arrumar nao ha o que separar: um toque, um significado, e ele age
+    // na hora. A janela de 260 ms existe so para distinguir um toque de dois.
+    if (arrumando) {
+      onArrumar?.();
+      return;
+    }
     // `detail` vem 0 quando o clique nao veio do mouse — Enter/Espaco no botao
     // focado, ou `.click()` por codigo. Nesses casos vale como um clique so.
     const cliques = e.detail || 1;
@@ -142,14 +192,22 @@ export default function CardSlot<T extends SlotItem>({
     <button
       type="button"
       onClick={aoClicar}
-      aria-pressed={owned}
-      aria-label={`${label} ${card.name}${porExtenso ? " " + porExtenso : ""} — ${
-        owned ? "você tem" : "está faltando"
-      }${starred ? ", você quer muito essa" : ""}`}
+      aria-pressed={arrumando ? undefined : owned}
+      aria-label={
+        arrumando
+          ? `${label} ${card.name} — toque para ${alvo ? "trocar" : "pegar"}`
+          : `${label} ${card.name}${porExtenso ? " " + porExtenso : ""} — ${
+              owned ? "você tem" : "está faltando"
+            }${starred ? ", você quer muito essa" : ""}`
+      }
       // `manipulation` evita que o toque duplo vire zoom no celular.
-      className={`bolso bolso-botao min-h-11 cursor-pointer touch-manipulation select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-tenho) ${
-        starred ? "bolso-estrela" : ""
-      } ${holo ? "bolso-holo" : ""} ${highlighted ? "pulsando" : ""}`}
+      className={`bolso bolso-botao min-h-11 cursor-pointer touch-manipulation select-none focus-visible:outline-2 focus-visible:outline-offset-2 ${
+        arrumando
+          ? "focus-visible:outline-(--color-tinta)"
+          : "focus-visible:outline-(--color-tenho)"
+      } ${starred && !arrumando ? "bolso-estrela" : ""} ${holo ? "bolso-holo" : ""} ${
+        highlighted ? "pulsando" : ""
+      } ${alvo ? "bolso-alvo" : ""}`}
     >
       {failed ? (
         /* Imagem indisponivel: verso com o numero por cima. Nunca icone quebrado. */

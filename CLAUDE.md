@@ -61,11 +61,13 @@ virou Node porque `sharp` já é dependência (dispensa venv e Pillow) e porque 
 fala uma fonte só. A saída é a mesma da spec §2 e §5 — `tests/manifests.test.ts` cobre a forma.
 
 **Sem ORM.** Postgres no Supabase, com RLS, acessado pelo cliente `supabase-js` (`lib/db.ts`).
-Quatro tabelas, só estado do usuário: `binder` (layout e ordem por coleção), `owned_card` (presença
-da linha = possui), `starred_card` (presença da linha = quero muito) e `binder_group` (um fichário
-que junta várias coleções: nome, `set_ids` na ordem das folhas, layout e ordem). Nasceu em `node:sqlite`
+Só estado do usuário: `binder` (layout e ordem por coleção), `owned_card` (presença
+da linha = possui), `starred_card` (presença da linha = quero muito, mais a lista a que ela
+pertence), `binder_group` (um fichário que junta várias coleções: nome, `set_ids` na ordem das
+folhas, layout e ordem) e `wishlist` (uma lista de desejos: só o nome). Nasceu em `node:sqlite`
 local e migrou para ter dono e sobreviver ao aparelho; o PRD sugeria Prisma, que exigiria
-`prisma.config.ts` mais driver adapter — mais peça móvel que problema resolvido para quatro tabelas.
+`prisma.config.ts` mais driver adapter — mais peça móvel que problema resolvido para meia dúzia de
+tabelas.
 
 **Toda consulta recebe `userId` explícito**, em vez de ir buscar a sessão por dentro. É o que
 deixa "sem sessão = fichário vazio" visível em cada chamada — e este app abre sem sessão de
@@ -127,6 +129,67 @@ acontece DENTRO de cada coleção, nunca no fichário inteiro; juntar é pôr em
 embaralhar. Desfazer o agrupamento (`DELETE /api/fichario`) **não toca em posse nem em estrela**: as
 cartas sempre foram da coleção.
 
+**A estrela mora numa lista, e uma carta está numa lista só.** `wishlist` guarda o nome;
+`starred_card.wishlist_id` diz de qual lista é cada estrela — a marca continua sendo a mesma linha
+de sempre, com a mesma chave, e por isso a migração não custou nenhuma das 98 estrelas em produção
+(cada dono ganhou "As que eu mais quero" e todas as suas foram para lá). A FK é **composta**,
+`(wishlist_id, user_id)` contra `(id, user_id)`: só `wishlist_id` deixaria gravar uma estrela minha
+dentro da lista de outra pessoa — invisível para os dois, porque cada um lê filtrando pelo próprio
+`user_id`, e mesmo assim uma linha na casa alheia. Uma carta em duas listas foi recusada de
+propósito: a estrela é UMA marca no bolso, e duas linhas para a mesma chave fariam uma marcação
+apagar a outra — o mesmo perigo que faz `parseItemKey` recusar sufixo desconhecido.
+
+**A lista nasce da primeira estrela, não de um cadastro.** Sem nenhuma lista, o POST de estrela
+cria "As que eu mais quero" e devolve o `listaId` (`listaPadrao`, em `lib/db.ts`) — três toques
+numa carta continuam sendo o gesto inteiro. A lista ativa vive no `localStorage`
+(`lib/listaAtiva.ts`) e não no banco, pela mesma razão que o filtro de raridade não é persistido:
+é onde a criança está olhando agora, e atravessar aparelhos faria a estrela cair numa lista que
+ela não lembra de ter escolhido.
+
+**Pôr estrela é binário; mudar de lista tem gesto próprio.** Três toques acendem na lista ativa ou
+apagam — uma carta já marcada em OUTRA lista **não** muda de lugar sozinha, porque uma troca
+invisível só seria descoberta na folha impressa. Mudar de lista acontece no visualizador, onde dá
+para ver qual carta está mudando (as pílulas sob o botão da estrela), e é o `upsert` de
+`setStarred` com `ignoreDuplicates` FALSE — ao contrário de `setOwned`, aqui o conflito é o gesto,
+não ruído.
+
+**Apagar uma lista apaga as estrelas dela** (cascade), e é o único DELETE do app que custa
+marcação — desfazer um fichário montado não custa. Por isso a confirmação em dois toques diz o
+número de cartas antes do segundo, e a última lista não pode ser apagada: sem nenhuma, a estrela
+seguinte criaria outra sozinha e a tela pareceria ter esquecido tudo.
+
+**O fichário pode ser arrumado à mão.** Até aqui toda posição era DERIVADA (`sortCards` →
+`expandirVariantes` → `generateSlots`) e nada de posição era gravado — o que dava o fichário que se
+monta sozinho, mas fechava a porta para o que a criança faz de verdade com um fichário físico:
+trocar duas cartas de lugar, reservar um bolso para a que ainda vai chegar, fazer uma página só de
+favoritas. `binder_arranjo` guarda **só a ordem dos bolsos** (`lib/arranjo.ts`, puro e testado);
+posse e estrela continuam chaveadas por `itemKey` e não por posição, então mover uma carta não
+custa marcação nenhuma.
+
+**O gesto é um só**: *tocar num bolso põe nele a carta da sua mão e leva para a mão a que estava
+lá*. Dele saem pegar, colocar, trocar e devolver sem nenhum modo escondido — é `tocar()`, uma
+permutação, e é isso que preserva o invariante de que **a mesma chave nunca ocupa dois bolsos** (duas
+posições com a mesma chave fariam UMA marcação acender as duas). O banco repete a checagem
+(`arranjo_sem_duplicata`) e a rota também. A carta na mão é GRAVADA: recarregar no meio de uma
+troca volta com ela na mão, e por isso o modo já abre ligado quando há mão gravada.
+
+**A chave do arranjo inclui o FORMATO da folha.** Uma folha de 4 bolsos é outra folha: reflowar um
+arranjo de 3×3 para 4×3 preservaria o dado e destruiria o desenho. Trocar de formato recongela do
+automático, e VOLTAR ao formato anterior restaura o que ele tinha arrumado lá — no máximo quatro
+linhas por fichário.
+
+**A reconciliação nunca perde carta e nunca desloca bolso** (`resolver`): chave que não resolve mais
+esvazia o bolso no lugar, carta que não está em canto nenhum entra no FIM na ordem automática (é o
+que faz repovoar uma coleção só acrescentar — as 49 promos que ainda dão 404 vão chegar um dia), e o
+que ele tirou de propósito fica em `fora` para não voltar sozinho a cada leitura. A leitura não
+grava, e a função é idempotente.
+
+**A gravação do arranjo é coalescida** (700 ms) e manda o ESTADO INTEIRO, não o gesto: um gesto
+exigiria que o servidor reconstituísse a sequência para saber o que "o bolso 3" era naquele
+instante, e dois gestos fora de ordem dariam fichários diferentes. Mandando o estado, a última
+gravação sempre está certa. O que estiver pendente é enviado no desmonte — a espera de 700 ms cabe
+inteira dentro de um toque em "‹ Coleções".
+
 **Filtro de raridade é lente, não estado.** O painel (`components/Raridades.tsx`, botão "raridades"
 no rodapé) filtra os bolsos por bucket e compõe com os quatro olhares — "só as especiais" + "o que
 falta" dá o que falta entre as especiais. **Não é persistido** e **não muda as quatro folhas**: é
@@ -143,6 +206,18 @@ ou rara), então uma raridade nova entra sozinha; o atalho só aparece onde sepa
 `zsv10pt5-60` ("Escavalier") — e o 80 sumiu da sequência. Use `cardNumber()` de `lib/cards.ts`,
 que lê o sufixo do `id`: verificado único e 100% numérico nas 4.589 cartas dos 25 sets.
 Há teste de regressão em `tests/cards.test.ts`.
+
+**`columns` é palavra reservada do PostgREST em escrita.** A coluna existe em `binder`,
+`binder_group` e `binder_arranjo`, e no SELECT não dá problema nenhum. Mas num UPDATE/INSERT o
+`?columns=` é o parâmetro que diz quais colunas o corpo traz — filtrar com `.eq("columns", 3)` faz
+o pedido morrer com *"Could not find the 'eq' column"*. Em `salvarArranjo` o filtro vai como
+`.or("columns.eq.3")`, onde o nome viaja no valor e não na chave; com um termo só, o efeito é o
+mesmo de um AND.
+
+**Os únicos de `binder_arranjo` são índices PARCIAIS** (`where set_id is not null`, e o espelho para
+`group_id`), porque a coluna do outro alvo é sempre NULL e um unique comum trataria dois NULLs como
+distintos. Consequência: `ON CONFLICT` por lista de colunas **não casa** com eles, então `upsert`
+não serve — `salvarArranjo` faz UPDATE e, se não achou linha, INSERT.
 
 **`lib/sheet.ts` é puro; `lib/pdf.ts` não.** A interface precisa de `sheetsNeeded()`, e importar
 isso de `pdf.ts` arrasta `node:fs` para o bundle do navegador — o Turbopack falha com
@@ -235,6 +310,12 @@ iça qualquer `@theme` para o topo, e a paleta escura passa a valer sempre.
   nunca foi usado por ninguém, o que já dizia que a marca útil era a outra. Estrela **não mexe na
   posse** (o esconder apagava): "já tenho" e "quero muito" são perguntas diferentes, e uma
   estrela conquistada é a melhor notícia do app, não uma contradição a resolver.
+- **São várias listas de desejo, e a segunda só aparece quando existe.** Com uma lista a tela é
+  exatamente a de antes — nenhuma aba, nenhum seletor, só um `+ nova lista` discreto na ponta. A
+  fileira de listas, o botão "★ vai para:" no rodapé do fichário e a folha "todas as listas juntas"
+  nascem junto com a segunda: um controle que não muda nada é pior que controle nenhum. Chamam-se
+  *listas* e não *fichas* porque *ficha* e *fichário* lado a lado, para uma criança, são a mesma
+  palavra.
 - **A lista de desejos vive na tela inicial**, acima das coleções, e só existe quando há estrela.
   É onde as estrelas de coleções diferentes ficam lado a lado — no fichário cada coleção é um
   mundo fechado, a vontade da criança não é. As já conquistadas continuam lá, com o visto verde;
@@ -252,8 +333,18 @@ iça qualquer `@theme` para o topo, e a paleta escura passa a valer sempre.
   dado, é a sequência em que elas se sucedem nas folhas. Tocar de novo tira, e as seguintes se
   renumeram; não há arrastar. O nome vem pronto ("Fichário " + a primeira coleção) e é editável. Os
   fichários montados ficam acima das coleções, com as capas em leque.
-- **Sem drag-and-drop** (as posições são derivadas). Reintroduzir é aditivo: uma tabela
-  `slot_overrides` aplicada por cima de `generateSlots`, não uma reescrita.
+- **Sem drag-and-drop, e a mão no lugar dele.** Arrastar não funciona num fichário de 300 bolsos:
+  para levar uma carta da página 3 até a 12 o dedo teria de soltar para virar a folha. A carta fica
+  numa faixa FIXA no rodapé, que sobrevive à virada de página — pega aqui, vira, solta lá. O modo
+  também desliga o toque duplo e o triplo: um toque, um significado, e sem a janela de 260 ms, que
+  só existe para separar um toque de dois.
+- **O modo arrumar se anuncia por matéria, não por cor.** A mesa escurece (`.bancada`), os bolsos
+  ganham contorno tracejado quando há carta na mão, e o único destaque cheio é o bolso de onde ela
+  saiu. Verde responde "já tenho" e dourado responde "quero muito"; um terceiro acento brigaria com
+  as cartas, que são o colorido da tela.
+- **Entrar no modo não grava nada.** Congela o fichário como está — inclusive os bolsos vazios da
+  fronteira entre coleções — e só a primeira mudança de verdade cria a linha. Entrar por
+  curiosidade e sair não pode custar um fichário "arrumado à mão" que ele nunca arrumou.
 - **Número de páginas é calculado**, nunca perguntado — o que elimina junto o caso "a coleção
   não cabe no fichário" do PRD §12.
 

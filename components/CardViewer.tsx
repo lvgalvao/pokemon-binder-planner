@@ -4,7 +4,13 @@ import { useEffect } from "react";
 import Image from "next/image";
 import { printUrl } from "@/lib/assets";
 import { cardNumber } from "@/lib/cards";
-import { BUCKET_LABELS, nomeVariante, type Card, type SlotItem } from "@/lib/types";
+import {
+  BUCKET_LABELS,
+  nomeVariante,
+  type Card,
+  type ListaDeDesejos,
+  type SlotItem,
+} from "@/lib/types";
 
 /**
  * A carta grande. Um toque simples abre daqui — e a parte divertida: a crianca
@@ -22,6 +28,9 @@ export default function CardViewer<T extends SlotItem>({
   onToggle,
   onToggleStar,
   onClose,
+  listas = [],
+  listaDaCarta = null,
+  onMover,
 }: {
   item: T;
   /** Preciso para dizer QUAL brilhante, onde a colecao tem dois reverses. */
@@ -32,6 +41,11 @@ export default function CardViewer<T extends SlotItem>({
   onToggle: (item: T) => void;
   onToggleStar: (item: T) => void;
   onClose: () => void;
+  /** As listas de desejo dele. Vazio, ou uma so, nao ha o que escolher. */
+  listas?: ListaDeDesejos[];
+  /** Em qual delas esta esta carta, se estiver em alguma. */
+  listaDaCarta?: string | null;
+  onMover?: (item: T, listaId: string) => void;
 }) {
   const { card, variant } = item;
   // Ascended Heroes tem dois reverses; aqui, onde a carta esta grande e a
@@ -129,6 +143,35 @@ export default function CardViewer<T extends SlotItem>({
         >
           {starred ? "★ Quero muito essa!" : "☆ Quero muito essa"}
         </button>
+
+        {/*
+          Mudar a carta de lista. So aqui, e so com a estrela ja acesa: e a unica
+          tela em que da para VER qual carta esta mudando de lugar — no fichario
+          o mesmo gesto seria uma troca invisivel, descoberta so na folha
+          impressa. Com uma lista so, nao ha para onde mover.
+        */}
+        {starred && listas.length > 1 && onMover && (
+          <div className="w-full min-w-64">
+            <p className="text-center text-sm text-white/60">na lista</p>
+            <div className="mt-1.5 flex flex-wrap justify-center gap-1.5">
+              {listas.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => onMover(item, l.id)}
+                  aria-pressed={l.id === listaDaCarta}
+                  className={`min-h-10 max-w-full truncate rounded-full px-3.5 text-sm font-medium transition-colors ${
+                    l.id === listaDaCarta
+                      ? "bg-(--color-estrela) text-white"
+                      : "bg-white/12 text-white/80 ring-1 ring-white/20"
+                  }`}
+                >
+                  {l.nome}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <button
           type="button"

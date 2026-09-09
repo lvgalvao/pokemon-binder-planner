@@ -1,7 +1,12 @@
 import Link from "next/link";
 import Image from "next/image";
 import { listSets } from "@/lib/manifests";
-import { listarFicharios, ownedCountBySet } from "@/lib/db";
+import {
+  alvosArrumados,
+  listarFicharios,
+  listarListas,
+  ownedCountBySet,
+} from "@/lib/db";
 import { estrelasDoUsuario } from "@/lib/listas";
 import { getUserId } from "@/lib/session";
 import { coverUrl } from "@/lib/assets";
@@ -21,10 +26,12 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const sets = listSets();
   const userId = await getUserId();
-  const [owned, estrelas, ficharios] = await Promise.all([
+  const [owned, estrelas, ficharios, listas, arrumados] = await Promise.all([
     ownedCountBySet(userId),
     estrelasDoUsuario(userId),
     listarFicharios(userId),
+    listarListas(userId),
+    alvosArrumados(userId),
   ]);
   const porId = new Map(sets.map((s) => [s.setId, s]));
 
@@ -37,10 +44,11 @@ export default async function Home() {
         Escolha uma coleção para começar.
       </p>
 
-      {/* A lista de desejos vem antes das colecoes quando existe: e a resposta a
-          pergunta mais quente ("cade as minhas?"), e some por completo quando
-          nao ha nenhuma estrela. */}
-      <ListaDeDesejos estrelas={estrelas} />
+      {/* As listas de desejo vem antes das colecoes quando existem: sao a
+          resposta a pergunta mais quente ("cade as minhas?"), e somem por
+          completo enquanto ele nao tiver criado nenhuma — a primeira nasce
+          sozinha, da primeira estrela. */}
+      <ListaDeDesejos estrelas={estrelas} listas={listas} />
 
       {/*
         Os ficharios montados a mao vem antes das colecoes soltas: sao a pasta
@@ -99,6 +107,9 @@ export default async function Home() {
                             {colecoes.length} coleções · {tenho} de {total} cartas
                           </>
                         )}
+                        {/* Arrumar a mao e trabalho dele; o cartao diz que esta
+                            ali sem precisar abrir. */}
+                        {arrumados.grupoIds.has(f.id) && <> · arrumado do meu jeito</>}
                       </span>
                     </span>
                   </Link>
@@ -163,6 +174,7 @@ export default async function Home() {
                     ) : (
                       <>{set.totalSet} cartas</>
                     )}
+                    {arrumados.setIds.has(set.setId) && <> · arrumada do meu jeito</>}
                   </p>
                 </div>
               </Link>

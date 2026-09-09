@@ -1,6 +1,13 @@
 import { notFound } from "next/navigation";
-import { getManifest } from "@/lib/manifests";
-import { getBinder, getOwnedIds, getStarredIds } from "@/lib/db";
+import { findPosicao, getManifest, listSets, posicoesDoSet } from "@/lib/manifests";
+import {
+  getArranjo,
+  getBinder,
+  getOwnedIds,
+  listarListas,
+  starredComLista,
+} from "@/lib/db";
+import { resolver } from "@/lib/arranjo";
 import { getUserId } from "@/lib/session";
 import Binder from "@/components/Binder";
 
@@ -21,14 +28,26 @@ export default async function BinderPage({
   const manifest = getManifest(setId);
   if (!manifest) notFound();
 
-  // Tres consultas independentes: em paralelo elas custam um round-trip, nao
-  // tres. Sem sessao, todas devolvem vazio sem tocar o banco.
+  // Consultas independentes: em paralelo elas custam um round-trip, nao quatro.
+  // Sem sessao, todas devolvem vazio sem tocar o banco.
   const userId = await getUserId();
-  const [binder, owned, starred] = await Promise.all([
+  const [binder, owned, starred, listas] = await Promise.all([
     getBinder(userId, setId),
     getOwnedIds(userId, setId),
-    getStarredIds(userId, setId),
+    starredComLista(userId, [setId]),
+    listarListas(userId),
   ]);
+
+  // O arranjo manual depende do formato da folha (uma folha de 4 bolsos e outra
+  // folha), entao so da para pedi-lo depois de saber o layout — dai a segunda
+  // ida ao banco, e nao uma quinta dentro do Promise.all.
+  const alvo = { tipo: "colecao", setId: manifest.setId } as const;
+  const gravado = await getArranjo(userId, alvo, binder);
+  // Reconciliado AQUI, e nao no cliente: e o servidor que conhece as 27 colecoes
+  // e consegue resolver uma chave puxada de qualquer uma delas.
+  const arranjo = gravado
+    ? resolver(gravado, posicoesDoSet(setId, binder.sortRule), findPosicao)
+    : null;
 
   return (
     <Binder
@@ -39,9 +58,12 @@ export default async function BinderPage({
       origem={{ tipo: "colecao", setId: manifest.setId }}
       initialOwned={[...owned]}
       initialStarred={[...starred]}
+      listas={listas}
       initialRows={binder.rows}
       initialColumns={binder.columns}
       initialSortRule={binder.sortRule}
+      arranjo={arranjo}
+      catalogo={listSets()}
     />
   );
 }
