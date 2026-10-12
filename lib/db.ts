@@ -93,7 +93,8 @@ export async function updateBinder(
  * arranjo manual mudou a conta: uma carta pode vir de qualquer colecao, entao a
  * consulta passa a varrer todos os sets presentes — e as 27 colecoes somam 7.735
  * bolsos. Alguem com tudo marcado batia no teto, e o codigo LANCA ao bater: a
- * pagina daria 500 em vez de mostrar o fichario.
+ * pagina daria 500 em vez de mostrar o fichario. Com as 68 colecoes a soma foi
+ * a 17.855: ainda cabe, mas a proxima leva de colecoes pede rever este numero.
  *
  * Continua explicito, e nao implicito, pelo motivo de sempre: passar do teto do
  * PostgREST em silencio faria cartas marcadas sumirem da tela sem erro nenhum.

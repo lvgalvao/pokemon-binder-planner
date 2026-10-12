@@ -52,9 +52,10 @@ export type Estado<T> = {
 export type Arranjo = Estado<string>;
 
 /**
- * Teto de bolsos. As 27 colecoes somam 7.735 posicoes; um fichario de 12
- * colecoes chega a 4.960. O teto existe para o estouro aparecer como recusa em
- * vez de dado truncado em silencio — e o banco repete o mesmo numero.
+ * Teto de bolsos de UM fichario. Um de 12 colecoes chega a 4.960; as 68 juntas
+ * somam 17.855 e passariam dele — mas ai nao e um fichario, e a estante. O teto
+ * existe para o estouro aparecer como recusa em vez de dado truncado em
+ * silencio — e o banco repete o mesmo numero.
  */
 export const MAX_BOLSOS = 8000;
 

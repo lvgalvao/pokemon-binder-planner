@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import Image from "next/image";
 import { printUrl } from "@/lib/assets";
-import { cardNumber } from "@/lib/cards";
+import { rotuloNumero } from "@/lib/cards";
 import {
   BUCKET_LABELS,
   nomeVariante,
@@ -66,7 +66,7 @@ export default function CardViewer<T extends SlotItem>({
     };
   }, [onClose]);
 
-  const label = String(cardNumber(card)).padStart(numberWidth, "0");
+  const label = rotuloNumero(card, numberWidth);
 
   return (
     <div

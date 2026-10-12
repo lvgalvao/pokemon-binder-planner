@@ -306,6 +306,67 @@ describe("versões simples e brilhante", () => {
   });
 });
 
+describe("reverse conferido carta a carta (colecoes trazidas do PokeTCG)", () => {
+  const bolsos = (setId: string) => expandirVariantes(getManifest(setId)!.cards, setId).length;
+  const carta = (setId: string, id: string) => getManifest(setId)!.cards.find((c) => c.id === id)!;
+
+  it("o dado da carta ganha da regra por raridade, nos dois sentidos", () => {
+    const rara: Card = { id: "x-1", name: "x", rarityRaw: "Rare", bucket: "03_raras", collectionNumber: 1, imagePath: "x/03_raras/x-1.jpg" };
+    expect(variantesDe("sv7", { ...rara, reverse: false })).toEqual(["normal"]);
+    expect(variantesDe("sv7", { ...rara, bucket: "07_legendaria", reverse: true })).toEqual(["normal", "holo"]);
+    // Sem o campo, vale a regra de sempre — e o que mantem as 27 originais como estavam.
+    expect(variantesDe("sv7", rara)).toEqual(["normal", "holo"]);
+  });
+
+  it("antes de 2002 nao ha reverse: nenhum bolso a mais", () => {
+    for (const set of ["base4", "base5", "gym1", "gym2", "neo1", "neo2", "neo3", "neo4"]) {
+      expect(bolsos(set), set).toBe(getManifest(set)!.cards.length);
+    }
+  });
+
+  it("Celebrations e 30th Celebration sao todas holo: nenhuma tem reverse", () => {
+    expect(bolsos("cel25")).toBe(50);
+    expect(bolsos("me55")).toBe(191);
+  });
+
+  it("Legendary Collection tem reverse em TODAS, inclusive nas raras holo", () => {
+    expect(bolsos("base6")).toBe(220);
+    expect(carta("base6", "base6-3").rarityRaw).toBe("Rare Holo");
+    expect(temReverseHolo("base6", carta("base6", "base6-3"))).toBe(true);
+  });
+
+  it("em Aquapolis as holo H nao tem reverse, e as raras numeradas tem", () => {
+    expect(temReverseHolo("ecard2", carta("ecard2", "ecard2-H1"))).toBe(false);
+    expect(temReverseHolo("ecard2", carta("ecard2", "ecard2-1"))).toBe(true);
+  });
+
+  it("subcolecao nunca tem reverse (Trainer Gallery, Shiny Vault, Classic Collection)", () => {
+    for (const set of ["swsh9", "swsh12pt5", "swsh45", "sm115", "cel25", "me55"]) {
+      const comReverse = getManifest(set)!.cards.filter((c) => c.subset && temReverseHolo(set, c));
+      expect(comReverse.map((c) => c.id), set).toEqual([]);
+    }
+  });
+
+  it("nas eras XY, Sun & Moon e Sword & Shield, toda comum e incomum do set principal tem reverse", () => {
+    for (const set of ["xy2", "xy12", "sm9", "sm12", "swsh4", "swsh7", "swsh12"]) {
+      const sem = getManifest(set)!.cards.filter(
+        (c) =>
+          !c.subset &&
+          /^\d+$/.test(c.id.slice(c.id.lastIndexOf("-") + 1)) &&
+          (c.bucket === "01_comum" || c.bucket === "02_incomum") &&
+          !temReverseHolo(set, c),
+      );
+      expect(sem.map((c) => c.id), set).toEqual([]);
+    }
+  });
+
+  it("as 27 colecoes originais nao ganharam o campo: os bolsos delas nao mudam", () => {
+    for (const set of ["sv7", "me5", "base1", "pgo", "me2pt5", "mep"]) {
+      expect(getManifest(set)!.cards.some((c) => c.reverse !== undefined), set).toBe(false);
+    }
+  });
+});
+
 describe("generateSlotsByGroup", () => {
   const item = (setId: string, n: number) => ({ setId, n });
 

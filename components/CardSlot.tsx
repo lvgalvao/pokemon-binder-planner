@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { cardNumber } from "@/lib/cards";
+import { rotuloNumero } from "@/lib/cards";
 import { webUrl, CARD_BACK_URL } from "@/lib/assets";
 import { rotuloVariante, nomeVariante, type SlotItem } from "@/lib/types";
 
@@ -134,7 +134,7 @@ export default function CardSlot<T extends SlotItem>({
   // POKEBOLA); onde ha um so, segue "HOLO", que e como a crianca ja o chama.
   const selo = rotuloVariante(setId, variant);
   const porExtenso = nomeVariante(setId, variant);
-  const label = String(cardNumber(card)).padStart(numberWidth, "0");
+  const label = rotuloNumero(card, numberWidth);
 
   const cancelarPendente = () => {
     if (timer.current) clearTimeout(timer.current);

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { printUrl } from "@/lib/assets";
-import { cardNumber } from "@/lib/cards";
+import { rotuloNumero } from "@/lib/cards";
 import { nomeVariante, type Posicao } from "@/lib/types";
 
 /**
@@ -36,7 +36,7 @@ export default function MaoDeCartas({
   onTirar: () => void;
 }) {
   const { card, variant, setId, setName } = item;
-  const label = String(cardNumber(card)).padStart(numberWidth, "0");
+  const label = rotuloNumero(card, numberWidth);
   const versao = nomeVariante(setId, variant);
 
   return (

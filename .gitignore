@@ -26,3 +26,6 @@ npm-debug.log*
 
 # Vinculo local com o projeto da Vercel (contem projectId e orgId da maquina).
 .vercel
+
+# Respostas das fontes de variantes (tools/variantes.mjs): regeraveis com --force.
+/.cache/

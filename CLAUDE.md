@@ -33,6 +33,8 @@ node tools/download-cards.mjs --set me5                       # de api.pokemontc
 node tools/download-cards.mjs --set mep --fonte tcgdex \
   --nome "Promos Mega Evolution"                              # só a tcgdex tem promo
 node tools/capa-promos.mjs --set mep --carta mep-29           # capa de quem não tem pacote
+node tools/clonar-colecoes.mjs --origem ../PokeTCG/assets     # copia o que o PokeTCG ja baixou
+node tools/variantes.mjs --set me55                           # reverse carta a carta, nas fontes
 node tools/sync-manifests.mjs                                 # assets/ -> data/manifests/
 node tools/upload-assets.mjs --set me5                        # derivados -> Supabase Storage
 ```
@@ -45,7 +47,7 @@ aplicado no projeto (`kuhhbncqurtwucylhsmq`). Depois de qualquer migração, reg
 
 **Sem Pokémon TCG API em tempo de execução.** Os dados vêm de `assets/<setId>/manifest.json`,
 lidos do disco e cacheados em memória (`lib/manifests.ts`). Sem chave, sem rate limit, funciona
-offline. Os 27 sets têm `unmapped = 0` e `totalSet == len(cards)`. O PRD §29–§33 descreve um
+offline. Os 68 sets têm `unmapped = 0` e `totalSet == len(cards)`. O PRD §29–§33 descreve um
 `PokemonTcgService` que **não existe** e não deve ser criado sem necessidade nova.
 
 **A API só aparece no downloader**, `tools/download-cards.mjs`, rodado à mão. Ele fala duas
@@ -94,6 +96,32 @@ folha 3×3 vai de 53 para 73. Quem decide é `variantesDe(setId, card)` — use 
 não `temReverseHolo`, que só responde se há reverse *algum*. O nome da variante
 padrão continua `holo` e não `energia` de propósito: é o que já está gravado como
 `#holo` em todo fichário existente, e renomear obrigaria a migrar posse.
+
+**Nas coleções antigas o reverse é dado da carta, não regra.** A regra por raridade acerta de
+2023 para cá e erra antes disso dos dois lados: em Legendary Collection até a rara holo tem
+reverse, em Celebrations e no 30th Celebration nenhuma carta tem, em Aquapolis as holo `H1`–`H32`
+não têm e as outras raras têm, e antes de 2002 ele nem existia. Por isso as 41 coleções que vieram
+do PokeTCG trazem `reverse: true|false` em cada carta do manifest, e `temReverseHolo` obedece o
+campo quando ele existe. Quem preenche é `tools/variantes.mjs`, cruzando três fontes — a TCGdex
+(`variants.reverse`, curada mas com buracos: EX Delta Species e as eras XY e Sun & Moon vêm como
+se não tivessem reverse), as chaves de preço da pokemontcg.io e os anúncios do TCGplayer filtrados
+por impressão. A carta tem reverse se qualquer uma disser que sim, porque o erro delas é sempre
+dado que falta. **As 27 originais não têm o campo e não devem ganhar**: há posse gravada em `#holo`
+lá, e tirar o bolso de baixo de uma marcação é pior que um bolso a mais — por isso `--set` é
+obrigatório na ferramenta.
+
+**Subcoleção mora no mesmo fichário, depois do set.** Trainer Gallery, Shiny Vault e Classic
+Collection saem dos mesmos pacotes, então ficam no manifest do set com `subset` na carta e o id
+com o prefixo delas (`swsh9tg-TG01` dentro de `swsh9`). A numeração recomeça, e por isso
+`sortCards` ordena por set principal → numeração comum → numeração com letra na frente → número
+(`lib/cards.ts`), e o selo do bolso mostra o que está impresso (`rotuloNumero`: `TG01`, `H12`,
+`182A`), não só os dígitos.
+
+**O PokeTCG é fonte de imagem, não de manifest.** `tools/clonar-colecoes.mjs` copia as cartas e a
+capa (lá a capa é curada: o pacote avulso oficial, tirado do TCGplayer) e REESCREVE o manifest
+sem as cartas `packOnly` — as 8 energias `sve-*` que o abridor de pacotes põe em toda coleção
+moderna. No fichário elas não são da coleção, e o mesmo `sve-9` em dez manifests quebraria a
+regra de que a chave de item é única no app inteiro. Coleção que já existe aqui não é tocada.
 
 **Promo é o 8º bucket, e uma coleção inteira.** A spec de assets §2 declara 7 buckets fixos e
 §4 manda descartar raridade não mapeada — foi por isso que promo nunca apareceu. Mas promo não
@@ -204,7 +232,9 @@ ou rara), então uma raridade nova entra sozinha; o atalho só aparece onde sepa
 `int(re.sub(r"[^0-9]", "", card.number))` e tem colisão nos dados: em `zsv10pt5`, a carta
 `zsv10pt5-80` ("Antique Cover Fossil") recebeu `collectionNumber: 60`, batendo com
 `zsv10pt5-60` ("Escavalier") — e o 80 sumiu da sequência. Use `cardNumber()` de `lib/cards.ts`,
-que lê o sufixo do `id`: verificado único e 100% numérico nas 4.589 cartas dos 25 sets.
+que lê o sufixo do `id`: verificado único e 100% numérico nas 4.589 cartas dos 25 sets
+originais. Nas coleções antigas o sufixo nem sempre é número (`TG01`, `H12`, `182a`, as letras do
+Unown) — ali `cardNumber` serve só para o "achar carta", e quem ordena é `ordem()`, no mesmo arquivo.
 Há teste de regressão em `tests/cards.test.ts`.
 
 **`columns` é palavra reservada do PostgREST em escrita.** A coluna existe em `binder`,
@@ -350,7 +380,7 @@ iça qualquer `@theme` para o topo, e a paleta escura passa a valer sempre.
 
 ## Não versionar
 
-`assets/` está no `.gitignore` (830 MB, 4.589 JPGs). Para repovoar, ver
+`assets/` está no `.gitignore` (2,1 GB, 11.183 JPGs). Para repovoar, ver
 `.llm/spec-download-assets.md` §11. `data/*.db` também fica de fora.
 
 <!-- BEGIN:nextjs-agent-rules -->

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { coverUrl, webUrl } from "@/lib/assets";
-import { cardNumber } from "@/lib/cards";
+import { cardNumber, rotuloNumero } from "@/lib/cards";
 import { itemKey, nomeVariante, type Posicao, type SetSummary } from "@/lib/types";
 
 /**
@@ -100,7 +100,7 @@ export default function Gaveta({
                 className={`carta ${dentro ? "carta-falta" : "carta-tenho"}`}
               />
               <span className="tabular pointer-events-none absolute bottom-1 left-1 z-10 rounded-md bg-black/62 px-1.5 py-0.5 text-[0.68rem] leading-none font-semibold text-white">
-                {String(cardNumber(p.card)).padStart(numberWidth, "0")}
+                {rotuloNumero(p.card, numberWidth)}
               </span>
               {dentro && (
                 <span className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-[var(--radius-carta)] bg-black/45 text-xs font-semibold text-white">

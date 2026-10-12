@@ -44,6 +44,19 @@ export type Card = {
   bucket: Bucket;
   collectionNumber: number;
   imagePath: string;
+  /**
+   * Subcolecao que sai nos mesmos pacotes e por isso mora no mesmo fichario —
+   * Trainer Gallery, Shiny Vault, Classic Collection. O id da carta leva o
+   * prefixo dela (`swsh9tg-TG01` dentro de `swsh9`), e a numeracao recomeca:
+   * e por isso que a ordenacao a poe DEPOIS do set principal (`lib/cards.ts`).
+   */
+  subset?: string;
+  /**
+   * Se ESTA carta existe em reverse holo, conferido carta a carta nas fontes
+   * (`tools/variantes.mjs`). Ausente nos manifests antigos, onde vale a regra
+   * por raridade de `temReverseHolo`.
+   */
+  reverse?: boolean;
 };
 
 export type Manifest = {
@@ -162,7 +175,16 @@ const BUCKETS_COM_REVERSE: ReadonlySet<Bucket> = new Set<Bucket>([
   "03_raras",
 ]);
 
+/**
+ * O dado da carta ganha da regra. A regra por raridade acerta as colecoes de
+ * 2023 em diante, mas erra nas antigas dos dois lados: em Legendary Collection
+ * ate a rara holo tem reverse, em Celebrations nenhuma carta tem, e em Neo
+ * Genesis o reverse ainda nem existia. Onde o manifest traz `reverse`, e ele
+ * quem responde; a regra fica para os manifests que nasceram antes do campo —
+ * e nao sao reescritos, porque tirar um bolso de la apagaria marcacao gravada.
+ */
 export function temReverseHolo(setId: string, card: Card): boolean {
+  if (card.reverse !== undefined) return card.reverse;
   return !SETS_SEM_REVERSE_HOLO.has(setId) && BUCKETS_COM_REVERSE.has(card.bucket);
 }
 

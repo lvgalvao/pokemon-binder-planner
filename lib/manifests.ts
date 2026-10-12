@@ -78,7 +78,7 @@ function loadAll(): Map<string, Manifest> {
  * nao tem o segundo reverse — e duas chaves diferentes caindo no mesmo bolso e
  * exatamente o que `parseItemKey` recusa fazer.
  *
- * Sao ~7.700 entradas nas 27 colecoes. Construido uma vez, no mesmo cache
+ * Sao ~17.900 entradas nas 68 colecoes. Construido uma vez, no mesmo cache
  * preguicoso dos manifests, porque quem precisa dele — resolver um arranjo —
  * precisa dele inteiro.
  */
@@ -138,17 +138,49 @@ export function resetManifestCache(): void {
  * familias das mais novas para as mais antigas — e, dentro da familia, numerica:
  * sv1, sv2, ..., sv10 (nunca sv1, sv10, sv2).
  *
+ * `pgo` e `cel25` nao tem familia no id, mas tem lugar na estante: sao da era
+ * Sword & Shield, e por isso vem logo depois dela.
+ *
  * Id sem numero depois do prefixo — hoje so `mep`, as promos — fica no fim da
  * sua familia, que e onde ele deve estar: a promo nao e a colecao seguinte, e o
  * extra da era. Sai de graca do `?? 0`, ja que as demais pontuam negativo.
  */
-const FAMILY_ORDER = ["me", "zsv", "rsv", "sv", "pgo", "base"];
+const FAMILY_ORDER = [
+  "me",
+  "zsv",
+  "rsv",
+  "sv",
+  "swsh",
+  "pgo",
+  "cel",
+  "sm",
+  "xy",
+  "ex",
+  "ecard",
+  "neo",
+  "gym",
+  "base",
+];
+
+/**
+ * Os ids que escrevem "e meio" sem separador. `swsh35` e a 3.5 (Champion's
+ * Path), nao a trigesima quinta — lido como inteiro, iria para a frente de
+ * todas as outras da familia. Os que usam `pt` (`sv3pt5`) nao precisam estar
+ * aqui: o numero deles para no `p`.
+ */
+const MEIO: Record<string, number> = {
+  me55: 5.5,
+  swsh35: 3.5,
+  swsh45: 4.5,
+  sm115: 11.5,
+};
 
 function sortKey(setId: string): [number, number, string] {
   const family = FAMILY_ORDER.find((f) => setId.startsWith(f)) ?? "";
   const familyRank = family ? FAMILY_ORDER.indexOf(family) : FAMILY_ORDER.length;
   const digits = setId.slice(family.length).match(/^\d+/);
-  return [familyRank, digits ? -Number(digits[0]) : 0, setId];
+  const numero = MEIO[setId] ?? (digits ? Number(digits[0]) : 0);
+  return [familyRank, numero ? -numero : 0, setId];
 }
 
 export function listSets(): SetSummary[] {
